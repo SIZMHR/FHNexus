@@ -458,8 +458,8 @@
                 redirectUri: window.location.origin
             },
             cache: {
-                cacheLocation: 'sessionStorage',
-                storeAuthStateInCookie: false
+                cacheLocation: 'localStorage',
+                storeAuthStateInCookie: true
             }
         };
 
@@ -629,8 +629,15 @@
                         // リダイレクトから戻ってきた場合は自動的に処理を再開する
                         if (sessionStorage.getItem('autoLoadSharePoint') === 'true') {
                             sessionStorage.removeItem('autoLoadSharePoint');
-                            if (badge) { badge.style.color = '#00d2ff'; badge.textContent = '認証完了、読み込みを再開します...'; }
-                            loadLatestJsonFromSharePoint();
+                            
+                            // 無限ループ防止: アカウントが正しく取得できている場合のみ再開
+                            if (client && client.getActiveAccount()) {
+                                if (badge) { badge.style.color = '#00d2ff'; badge.textContent = '認証完了、読み込みを再開します...'; }
+                                loadLatestJsonFromSharePoint();
+                            } else {
+                                if (badge) { badge.style.color = '#ff4d6d'; badge.textContent = '認証に失敗しました (ループ検知)'; }
+                                alert("Microsoft の認証情報が取得できませんでした。\nブラウザのポップアップブロックや Cookie の設定を確認してください。");
+                            }
                             return;
                         }
 
