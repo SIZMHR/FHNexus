@@ -400,7 +400,12 @@
                         `;
                     }
                 }, 600);
-        // Azure Static Web Apps 認証チェック ＆ ログイン処理（Teams iframe 内でのポップアップログイン対応）
+            }
+        }
+
+        // ==========================================
+        // Azure Static Web Apps 認証チェック
+        // ==========================================
         let currentUser = null;
         async function checkAzureAuth() {
             try {
