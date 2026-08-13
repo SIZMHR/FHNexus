@@ -526,6 +526,7 @@
 
             // 3. 上記で取れない場合はリダイレクト方式で認証（ポップアップを使わないためCOOPエラーもアプリ2重起動も発生しません）
             console.log("Redirecting for MSAL auth...");
+            sessionStorage.setItem('autoLoadSharePoint', 'true'); // リダイレクトから戻った後に自動再開するためのフラグ
             await client.loginRedirect({
                 scopes: GRAPH_SCOPES,
                 loginHint: userEmail
@@ -624,6 +625,15 @@
                     try {
                         const client = await initMsal();
                         const badge = document.getElementById('sp-load-badge');
+                        
+                        // リダイレクトから戻ってきた場合は自動的に処理を再開する
+                        if (sessionStorage.getItem('autoLoadSharePoint') === 'true') {
+                            sessionStorage.removeItem('autoLoadSharePoint');
+                            if (badge) { badge.style.color = '#00d2ff'; badge.textContent = '認証完了、読み込みを再開します...'; }
+                            loadLatestJsonFromSharePoint();
+                            return;
+                        }
+
                         if (client && client.getActiveAccount()) {
                             if (badge) { badge.style.color = '#00d2ff'; badge.textContent = 'SharePoint 接続可能'; }
                         } else if (currentUser) {
