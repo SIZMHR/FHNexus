@@ -578,13 +578,26 @@
 
                 const latest   = jsonFiles[0];
                 const fileDate = new Date(latest.lastModifiedDateTime).toLocaleString('ja-JP');
+                console.log("Latest file:", latest.name, "Modified:", fileDate);
 
                 // ファイルをダウンロード
-                const dlUrl   = latest['@microsoft.graph.downloadUrl'];
-                const fileRes = await fetch(dlUrl);
+                let dlUrl = latest['@microsoft.graph.downloadUrl'];
+                
+                // downloadUrl が取得できない場合は Graph API 経由でコンテンツを取得
+                if (!dlUrl) {
+                    console.log("downloadUrl not available, using Graph API content endpoint");
+                    const encodedPath = usedPath.split('/').map(s => encodeURIComponent(s)).join('/');
+                    dlUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:${encodedPath}/${encodeURIComponent(latest.name)}:/content`;
+                }
+                console.log("Downloading from:", dlUrl);
+
+                const fileRes = await fetch(dlUrl, dlUrl.includes('graph.microsoft.com') ? {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                } : {});
                 if (!fileRes.ok) throw new Error(`ダウンロード失敗 (${fileRes.status})`);
 
                 const jsonText = await fileRes.text();
+                console.log("Downloaded content (first 200 chars):", jsonText.substring(0, 200));
                 rawJsonData = JSON.parse(jsonText);
 
                 // 通常の JSON 読込と同じ処理
