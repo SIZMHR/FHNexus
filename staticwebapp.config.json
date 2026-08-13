@@ -19,6 +19,7 @@
     }
   },
   "globalHeaders": {
-    "Cache-Control": "no-store"
+    "Cache-Control": "no-store",
+    "Cross-Origin-Opener-Policy": "unsafe-none"
   }
 }
