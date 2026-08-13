@@ -350,8 +350,8 @@
         const envBadge = document.getElementById('env-badge');
         let isTeamsEnv = false;
 
-        // Teams 専用モード設定 (true: Teams 外からの直接アクセスをブロック, false: 一般ブラウザでもアクセス許可)
-        const TEAMS_ONLY_MODE = true;
+        // Teams 専用モード設定 (true: Teams 外からのアクセスを遮断, false: Microsoft 認証後であれば一般ブラウザでも利用可能)
+        const TEAMS_ONLY_MODE = false;
 
         if (typeof microsoftTeams !== 'undefined' && microsoftTeams.app) {
             microsoftTeams.app.initialize().then(() => {
