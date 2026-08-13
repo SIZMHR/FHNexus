@@ -503,18 +503,32 @@
 
                 const token = await getGraphToken();
 
-                // フォルダ内のファイル一覧を取得（最終更新日降順）
-                const listUrl = `https://graph.microsoft.com/v1.0/sites/${SP_SITE}/drive/root:${SP_FOLDER}:/children` +
-                    `?$orderby=lastModifiedDateTime desc` +
-                    `&$select=name,lastModifiedDateTime,@microsoft.graph.downloadUrl` +
-                    `&$top=50`;
+                // 候補フォルダパス（Shared Documents の有無両方に対応）
+                const candidatePaths = [
+                    '/General/戦績データ（年間戦績）/json',
+                    '/Shared Documents/General/戦績データ（年間戦績）/json',
+                    '/ドキュメント/General/戦績データ（年間戦績）/json'
+                ];
 
-                const listRes = await fetch(listUrl, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!listRes.ok) {
-                    const errBody = await listRes.text();
-                    throw new Error(`フォルダ取得失敗 (${listRes.status}): ${errBody}`);
+                let listRes = null;
+                let usedPath = '';
+                for (const path of candidatePaths) {
+                    const listUrl = `https://graph.microsoft.com/v1.0/sites/${SP_SITE}/drive/root:${path}:/children` +
+                        `?$orderby=lastModifiedDateTime desc` +
+                        `&$select=name,lastModifiedDateTime,@microsoft.graph.downloadUrl` +
+                        `&$top=50`;
+                    const res = await fetch(listUrl, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                        listRes = res;
+                        usedPath = path;
+                        break;
+                    }
+                }
+
+                if (!listRes) {
+                    throw new Error(`指定フォルダが見つかりませんでした。サイト内の「General > 戦績データ（年間戦績） > json」の場所を確認してください。`);
                 }
 
                 const listData  = await listRes.json();
