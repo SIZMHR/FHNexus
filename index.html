@@ -396,8 +396,48 @@
                         `;
                     }
                 }, 600);
+        // Azure Static Web Apps 認証チェック ＆ ログイン処理（Teams iframe 内でのポップアップログイン対応）
+        let currentUser = null;
+        async function checkAzureAuth() {
+            try {
+                const res = await fetch('/.auth/me');
+                const data = await res.json();
+                if (data && data.clientPrincipal) {
+                    currentUser = data.clientPrincipal;
+                    console.log("Logged in user:", currentUser.userDetails);
+                    if (envBadge) envBadge.textContent = isTeamsEnv ? `Teams | 👤 ${currentUser.userDetails}` : `👤 ${currentUser.userDetails}`;
+                } else {
+                    console.log("User not logged in yet.");
+                    showAuthPrompt();
+                }
+            } catch (err) {
+                console.log("Auth check skipped (local or unsupported):", err);
             }
         }
+
+        function showAuthPrompt() {
+            const headerRight = document.querySelector('.header-controls');
+            if (headerRight && !document.getElementById('btn-ms-login')) {
+                const loginBtn = document.createElement('button');
+                loginBtn.id = 'btn-ms-login';
+                loginBtn.className = 'btn-green';
+                loginBtn.style.padding = '4px 10px';
+                loginBtn.style.fontSize = '12px';
+                loginBtn.innerHTML = '🔑 MSログイン';
+                loginBtn.title = 'Microsoft アカウントでサインイン';
+                loginBtn.onclick = () => {
+                    const authWindow = window.open('/.auth/login/aad', 'msAuthPopup', 'width=600,height=700');
+                    const timer = setInterval(() => {
+                        if (authWindow.closed) {
+                            clearInterval(timer);
+                            window.location.reload();
+                        }
+                    }, 1000);
+                };
+                headerRight.appendChild(loginBtn);
+            }
+        }
+        checkAzureAuth();
 
         function applyTeamsTheme(theme) {
             document.body.classList.remove('teams-light', 'teams-contrast');

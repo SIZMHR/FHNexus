@@ -8,12 +8,14 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location $ScriptDir
 
 if ($AppUrl -ne "") {
-    Write-Host "Updating contentUrl: $AppUrl" -ForegroundColor Yellow
+    # 末尾のスラッシュを削除
+    $CleanUrl = $AppUrl.TrimEnd('/')
+    Write-Host "Updating contentUrl: $CleanUrl" -ForegroundColor Yellow
     $manifestJson = Get-Content -Encoding UTF8 -Path "manifest.json" | ConvertFrom-Json
-    $manifestJson.staticTabs[0].contentUrl = "$AppUrl/index.html"
-    $manifestJson.staticTabs[0].websiteUrl = "$AppUrl/index.html"
+    $manifestJson.staticTabs[0].contentUrl = "$CleanUrl/index.html"
+    $manifestJson.staticTabs[0].websiteUrl = "$CleanUrl/index.html"
     
-    $uri = [System.Uri]$AppUrl
+    $uri = [System.Uri]$CleanUrl
     $domain = $uri.Host
     if ($manifestJson.validDomains -notcontains $domain) {
         $manifestJson.validDomains += $domain
