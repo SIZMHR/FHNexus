@@ -492,35 +492,40 @@
 
         async function getGraphToken() {
             const client = await initMsal();
-            const accounts = client.getAllAccounts();
-            
-            // Azure Static Web Apps のログインユーザー情報をヒントとして使用
+            let account = client.getActiveAccount() || client.getAllAccounts()[0];
             const userEmail = currentUser && currentUser.userDetails ? currentUser.userDetails : undefined;
-            
-            const tokenReq = { 
-                scopes: GRAPH_SCOPES, 
-                account: accounts.length > 0 ? accounts[0] : undefined,
-                loginHint: userEmail
-            };
-            
-            try {
-                // まずサイレントで取得を試みる
-                const res = await client.acquireTokenSilent(tokenReq);
-                return res.accessToken;
-            } catch (silentError) {
-                console.log("Silent token fetch failed, opening popup:", silentError);
-                // サイレント失敗時のみポップアップ
+
+            // アカウント情報がない場合は loginPopup でサインインを完了させる
+            if (!account) {
+                console.log("No active MSAL account found. Initiating loginPopup...");
                 try {
-                    const res = await client.acquireTokenPopup(tokenReq);
-                    return res.accessToken;
-                } catch (popupError) {
-                    // ポップアップもブロックされる場合 ssoSilent を試す
-                    if (userEmail) {
-                        const ssoRes = await client.ssoSilent({ scopes: GRAPH_SCOPES, loginHint: userEmail });
-                        return ssoRes.accessToken;
-                    }
-                    throw popupError;
+                    const loginRes = await client.loginPopup({
+                        scopes: GRAPH_SCOPES,
+                        loginHint: userEmail
+                    });
+                    account = loginRes.account;
+                    client.setActiveAccount(account);
+                    return loginRes.accessToken;
+                } catch (loginErr) {
+                    console.error("loginPopup error:", loginErr);
+                    throw new Error("Microsoft サインインに失敗しました（ポップアップが許可されているか確認してください）");
                 }
+            }
+
+            // アカウントが存在する場合はサイレントでトークンを取得
+            try {
+                const res = await client.acquireTokenSilent({
+                    scopes: GRAPH_SCOPES,
+                    account: account
+                });
+                return res.accessToken;
+            } catch (silentErr) {
+                console.log("acquireTokenSilent failed, trying acquireTokenPopup:", silentErr);
+                const res = await client.acquireTokenPopup({
+                    scopes: GRAPH_SCOPES,
+                    account: account
+                });
+                return res.accessToken;
             }
         }
 
