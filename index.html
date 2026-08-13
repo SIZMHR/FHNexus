@@ -515,24 +515,7 @@
                 }
             }
 
-            // 2. SSO (ssoSilent) でポップアップも画面遷移もなしにトークン取得を試みる
-            if (userEmail) {
-                try {
-                    console.log("Attempting ssoSilent for:", userEmail);
-                    const ssoRes = await client.ssoSilent({
-                        scopes: GRAPH_SCOPES,
-                        loginHint: userEmail
-                    });
-                    if (ssoRes && ssoRes.account) {
-                        client.setActiveAccount(ssoRes.account);
-                    }
-                    return ssoRes.accessToken;
-                } catch (ssoErr) {
-                    console.log("ssoSilent failed:", ssoErr);
-                }
-            }
-
-            // 3. 上記で取れない場合はポップアップ方式で認証
+            // 2. 上記で取れない場合はポップアップ方式で認証
             // (COOP ヘッダーとメモリキャッシュにより、アプリ2重起動やストレージブロックを回避します)
             console.log("Initiating MSAL loginPopup...");
             const popupRes = await client.loginPopup({
