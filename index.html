@@ -468,25 +468,33 @@
         const SP_FOLDER  = '/General/戦績データ（年間戦績）/json';
 
         let msalInstance = null;
+        let msalRedirectPromise = null;
+
+        // ページロード時に即座に MSAL を初期化し、リダイレクト情報をURLから拾う
+        if (typeof msal !== 'undefined') {
+            msalInstance = new msal.PublicClientApplication(MSAL_CONFIG);
+            msalRedirectPromise = msalInstance.initialize().then(() => {
+                return msalInstance.handleRedirectPromise();
+            }).then(redirectResponse => {
+                if (redirectResponse && redirectResponse.account) {
+                    msalInstance.setActiveAccount(redirectResponse.account);
+                    console.log("MSAL active account set after redirect:", redirectResponse.account.username);
+                } else {
+                    const accounts = msalInstance.getAllAccounts();
+                    if (accounts.length > 0) {
+                        msalInstance.setActiveAccount(accounts[0]);
+                    }
+                }
+                return msalInstance;
+            }).catch(err => {
+                console.error("MSAL Redirect Error:", err);
+                return msalInstance;
+            });
+        }
 
         async function initMsal() {
-            if (msalInstance) return msalInstance;
-            if (typeof msal === 'undefined') throw new Error('MSALライブラリの読込に失敗しました');
-            msalInstance = new msal.PublicClientApplication(MSAL_CONFIG);
-            await msalInstance.initialize();
-            
-            // リダイレクトからの復帰処理
-            const redirectResponse = await msalInstance.handleRedirectPromise();
-            if (redirectResponse && redirectResponse.account) {
-                msalInstance.setActiveAccount(redirectResponse.account);
-                console.log("MSAL active account set after redirect:", redirectResponse.account.username);
-            } else {
-                const accounts = msalInstance.getAllAccounts();
-                if (accounts.length > 0) {
-                    msalInstance.setActiveAccount(accounts[0]);
-                }
-            }
-            return msalInstance;
+            if (!msalRedirectPromise) throw new Error('MSALライブラリの読込に失敗しました');
+            return await msalRedirectPromise;
         }
 
         async function getGraphToken() {
