@@ -1,0 +1,48 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.manifest.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "c7a2e8f1-9b4d-4e20-8a1a-f3e91b58a123",
+  "developer": {
+    "name": "FLAGHUNT Development",
+    "websiteUrl": "https://example.com",
+    "privacyUrl": "https://example.com/privacy",
+    "termsOfUseUrl": "https://example.com/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "FLAGHUNT Nexus",
+    "full": "FLAGHUNT Nexus - 分析 ＆ 自動チーム編成"
+  },
+  "description": {
+    "short": "フラッグハントの対戦分析と自動チーム編成ダッシュボード",
+    "full": "フラッグハントのプレイヤー関係性ネットワーク解析、最強ペア抽出、プレイスタイル偏差値分析、およびシミュレーテッド・アニーリングによるAI自動チーム編成を行うOffice 365 / Microsoft Teams対応タブアプリです。"
+  },
+  "accentColor": "#00D2FF",
+  "staticTabs": [
+    {
+      "entityId": "flaghunt-nexus-tab",
+      "name": "FLAGHUNT Nexus",
+      "contentUrl": "https://YOUR_SUBDOMAIN.azurewebsites.net/index.html",
+      "websiteUrl": "https://YOUR_SUBDOMAIN.azurewebsites.net/index.html",
+      "scopes": [
+        "personal",
+        "team",
+        "groupchat"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "*.azurewebsites.net",
+    "*.github.io",
+    "*.ngrok-free.app",
+    "*.ngrok.io"
+  ]
+}

@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚩 FLAGHUNT Nexus - 分析 ＆ 自動チーム編成</title>
+    <!-- Microsoft Teams JS SDK -->
+    <script src="https://res.cdn.office.net/teams-js/2.22.0/js/MicrosoftTeams.min.js"></script>
+    <!-- Graph & Chart Libraries -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif; }
+        body { background-color: #0d111a; color: #e0e6ed; overflow: hidden; height: 100vh; width: 100vw; display: flex; flex-direction: column; }
+        
+        /* Teams Theme Supports */
+        body.teams-light { background-color: #f3f2f1; color: #252423; }
+        body.teams-light header { background: #ffffff; border-bottom-color: #e1dfdd; }
+        body.teams-light h1 { color: #252423; }
+        body.teams-light .tabs-container { background: #faf9f8; border-bottom-color: #e1dfdd; }
+        body.teams-light .tab-btn { color: #605e5c; }
+        body.teams-light .tab-btn.active { color: #0078d4; border-bottom-color: #0078d4; background: rgba(0, 120, 212, 0.05); }
+        body.teams-light .team-sidebar { background: #ffffff; border-right-color: #e1dfdd; }
+        body.teams-light .team-main { background: #faf9f8; }
+
+        body.teams-contrast { background-color: #000000; color: #ffffff; }
+        body.teams-contrast header, body.teams-contrast .tabs-container { background: #000000; border-bottom: 2px solid #ffff00; }
+        body.teams-contrast .tab-btn.active { color: #ffff00; border-bottom-color: #ffff00; }
+
+        /* --- Header & Tabs --- */
+        header { background: rgba(20, 26, 40, 0.95); padding: 10px 15px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a334a; z-index: 10; gap: 10px; }
+        h1 { font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+        .header-badge { font-size: 10px; background: #00d2ff; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+        .header-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        
+        .tabs-container { display: flex; background: #141a28; border-bottom: 1px solid #2a334a; z-index: 9; }
+        .tab-btn { flex: 1; padding: 12px 10px; font-size: 14px; font-weight: bold; background: none; color: #8b9bb4; border: none; border-bottom: 3px solid transparent; cursor: pointer; transition: 0.2s; white-space: nowrap; }
+        .tab-btn:hover { background: rgba(255,255,255,0.05); color: #e0e6ed; }
+        .tab-btn.active { color: #00d2ff; border-bottom-color: #00d2ff; background: rgba(0, 210, 255, 0.05); }
+
+        /* --- Shared Controls --- */
+        .control-group { display: flex; align-items: center; gap: 6px; font-size: 12px; background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px; border: 1px solid #3b486b; white-space: nowrap; }
+        select, input[type="range"], input[type="file"], input[type="date"], input[type="number"], button, input[type="text"] { background: #1e2638; border: 1px solid #3b486b; color: #ffffff; padding: 4px 8px; border-radius: 4px; outline: none; font-size: 13px; }
+        button { background: #00d2ff; color: #000; font-weight: bold; border: none; padding: 6px 14px; border-radius: 6px; transition: 0.2s; cursor: pointer; }
+        button:hover { background: #00b8e6; }
+        .btn-green { background: #06d6a0; color: #000; }
+        .btn-green:hover { background: #05b586; }
+        .btn-green:disabled { background: #3b486b; color: #8b9bb4; cursor: not-allowed; }
+
+        /* --- Main Content Area --- */
+        .main-content { flex: 1; position: relative; display: flex; overflow: hidden; }
+        .tab-pane { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        .tab-pane.active { display: flex; }
+
+        /* --- Tab 1: Network View --- */
+        #network-wrapper { flex: 1; position: relative; width: 100%; height: 100%; }
+        #network { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        #initial-message { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2; text-align: center; color: #6c7d93; font-size: 16px; background: rgba(15, 20, 32, 0.85); padding: 25px 40px; border-radius: 12px; border: 1px dashed #3b486b; width: 90%; max-width: 440px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+        #drop-zone { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 210, 255, 0.15); border: 4px dashed #00d2ff; display: none; justify-content: center; align-items: center; z-index: 100; font-size: 24px; font-weight: bold; color: #fff; backdrop-filter: blur(4px); }
+        #drop-zone.active { display: flex; }
+
+        .network-tools { position: absolute; top: 15px; left: 15px; z-index: 10; display: flex; gap: 8px; flex-wrap: wrap; background: rgba(20,26,40,0.92); padding: 8px; border-radius: 8px; border: 1px solid #2a334a; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .panel { position: absolute; background: rgba(15, 20, 32, 0.92); backdrop-filter: blur(8px); border: 1px solid #2a3652; border-radius: 10px; padding: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 5; font-size: 12px; display: none; }
+        .pair-panel { top: 70px; left: 15px; width: 280px; border-color: #ffbe0b; max-height: calc(100vh - 200px); overflow-y: auto; z-index: 15; }
+        .pair-item { background: rgba(255,215,0,0.06); border: 1px solid rgba(255,215,0,0.2); padding: 6px; border-radius: 6px; margin-bottom: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
+        .pair-item:hover { background: rgba(255,215,0,0.2); border-color: #ffd700; transform: translateX(3px); }
+        .info-panel { bottom: 60px; left: 15px; width: 280px; }
+        .info-panel h3 { color: #00d2ff; margin-bottom: 8px; border-bottom: 1px solid #2a3652; padding-bottom: 4px; }
+        .legend-panel { top: 15px; right: 15px; width: 280px;}
+        .timeline-panel { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); background: rgba(20, 26, 40, 0.95); border: 1px solid #00d2ff; border-radius: 20px; padding: 8px 15px; display: none; align-items: center; gap: 10px; z-index: 10; white-space: nowrap; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 500px; }
+
+        /* --- Tab 2: Team Generation --- */
+        .team-layout { display: flex; width: 100%; height: 100%; flex-direction: row; }
+        .team-sidebar { flex: 1.2; display: flex; flex-direction: column; border-right: 1px solid #2a3652; padding: 15px; overflow-y: auto; background: #0f1420; }
+        .team-main { flex: 1; display: flex; flex-direction: column; padding: 15px; overflow-y: auto; background: #0d111a; }
+
+        .selected-tag { display: inline-block; background: #2a3652; padding: 4px 10px; border-radius: 12px; font-size: 13px; margin: 2px 4px 4px 0; border: 1px solid #556896;}
+        .team-box { background: rgba(0,0,0,0.3); border: 1px solid #06d6a0; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+        .team-box.drag-over { border-color: #00d2ff !important; background: rgba(0, 210, 255, 0.1) !important; box-shadow: 0 0 15px rgba(0, 210, 255, 0.3) !important; }
+
+        .player-row { display: flex; align-items: center; justify-content: space-between; padding: 6px; border-radius: 4px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.05); gap: 5px; }
+        .player-row:hover { background: rgba(255,255,255,0.08); }
+        .fixed-select { padding: 4px; font-size: 12px; background: #1e2638; border: 1px solid #3b486b; color: #00d2ff; cursor: pointer; max-width: 110px; }
+
+        .checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #e0e6ed; font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .checkbox-label input[type="checkbox"] { cursor: pointer; width: 16px; height: 16px; accent-color: #06d6a0; flex-shrink: 0; }
+
+        #team-chart-container { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 5px; margin-bottom: 10px; height: 160px; flex-shrink: 0; }
+
+        /* --- Modals --- */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75); z-index: 200; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .modal-content-player, .modal-content-select { background: #0f1420; border: 1px solid #00d2ff; border-radius: 12px; width: 90%; height: 85%; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
+        .modal-content-player { max-width: 1000px; }
+        .modal-content-select { max-width: 600px; border-color: #06d6a0; height: 90%; }
+        
+        .modal-header { padding: 15px 20px; border-bottom: 1px solid #2a3652; display: flex; justify-content: space-between; align-items: center; background: rgba(255, 255, 255, 0.03); border-top-left-radius: 12px; border-top-right-radius: 12px; flex-wrap: wrap; gap: 10px; }
+        .modal-body { padding: 15px; flex: 1; overflow-y: auto; display: flex; gap: 20px; flex-direction: row; }
+        .modal-body-col { flex-direction: column; gap: 10px; }
+        .modal-close { cursor: pointer; color: #ff4d6d; font-size: 28px; background: none; border: none; padding: 0; line-height: 1;}
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #3b486b; border-radius: 4px; }
+
+        @media (max-width: 768px) {
+            header { flex-direction: column; align-items: flex-start; padding: 10px; }
+            .header-controls { width: 100%; justify-content: space-between; }
+            .control-group { flex: 1; justify-content: space-between; }
+            .control-group label { display: none; }
+            
+            .network-tools { position: relative; top: 0; left: 0; background: transparent; border: none; padding: 0; margin-bottom: 10px; width: 100%; box-shadow: none; justify-content: center; }
+            .panel { width: calc(100% - 20px); left: 10px !important; right: auto !important; position: relative; margin-bottom: 10px; top: auto !important; bottom: auto !important; }
+            .pair-panel { display: none; } 
+            
+            #network-wrapper { display: flex; flex-direction: column; }
+            #network { position: relative; height: 45vh; flex-shrink: 0; border-bottom: 1px solid #2a334a; }
+            #network-panels-mobile { display: flex; flex-direction: column; height: 55vh; overflow-y: auto; padding: 10px; background: #0d111a; }
+            .timeline-panel { position: relative; bottom: auto; left: auto; transform: none; width: 100%; margin-top: 10px; }
+
+            .team-layout { flex-direction: column; overflow-y: auto; }
+            .team-sidebar { flex: none; border-right: none; border-bottom: 2px solid #2a3652; height: auto; padding: 10px; }
+            .team-main { flex: none; height: auto; min-height: 50vh; padding: 10px; }
+            
+            .modal-body { flex-direction: column; }
+            .modal-content-player, .modal-content-select { height: 95%; width: 95%; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🚩 FLAGHUNT Nexus <span class="header-badge" id="env-badge">Standalone / Teams</span></h1>
+        <div class="header-controls">
+            <div class="control-group" style="border-color: #00d2ff;">
+                <label>📁 JSON読込:</label>
+                <input type="file" id="file-input" accept=".json" style="max-width: 180px;">
+            </div>
+        </div>
+    </header>
+
+    <!-- タブナビゲーション -->
+    <div class="tabs-container">
+        <button class="tab-btn active" data-tab="tab-network">🌐 ネットワーク分析</button>
+        <button class="tab-btn" data-tab="tab-team">🤝 チーム編成ツール</button>
+    </div>
+
+    <!-- メインコンテンツ -->
+    <div class="main-content">
+        <!-- タブ1: ネットワーク分析 -->
+        <div id="tab-network" class="tab-pane active">
+            <div id="network-wrapper">
+                <div id="initial-message">
+                    <h2 style="color: #00d2ff; margin-bottom: 10px;">データを読み込んでください</h2>
+                    <p style="font-size: 13px;">画面上部の「📁 JSON読込」からファイルを選択するか、<br>この画面に JSON ファイルをドラッグ＆ドロップしてください。</p>
+                </div>
+                
+                <div id="network"></div>
+                
+                <div id="network-panels-mobile">
+                    <div class="network-tools" id="network-tools-bar" style="display:none;">
+                        <div class="control-group" title="名前を入力して検索できます">
+                            <label>🔍</label>
+                            <input type="text" id="network-search-input" list="players-list" placeholder="名前を検索..." style="width: 120px;" autocomplete="off">
+                            <datalist id="players-list"></datalist>
+                        </div>
+                        <div class="control-group" title="共闘回数で線をフィルタリング">
+                            <label>線:</label>
+                            <input type="range" id="edge-filter" min="1" max="50" value="5" step="1" style="width: 60px;">
+                            <span id="filter-val" style="min-width: 35px;">5回</span>
+                        </div>
+                        <button id="btn-toggle-pairs" style="background: #ffbe0b; color: #000; padding: 4px 10px;">🏆 双璧</button>
+                        <button onclick="resetZoom()" style="padding: 4px 10px;">全体表示</button>
+                    </div>
+
+                    <div class="panel pair-panel" id="pair-panel">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,215,0,0.3); padding-bottom: 6px; margin-bottom: 8px;">
+                            <h3 style="color: #ffd700; margin: 0; padding: 0; border: none;">🏆 最強の双璧 TOP 10</h3>
+                            <button id="btn-close-pairs" style="background: none; border: none; color: #ffd700; font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
+                        </div>
+                        <div id="pair-list">解析中...</div>
+                    </div>
+
+                    <div class="panel legend-panel" id="legend-panel">
+                        <div style="font-weight: bold; margin-bottom: 6px; color: #8b9bb4;">凡例</div>
+                        <div><span style="color:#00d2ff;">● 円の大きさ</span>：ユニーク味方数</div>
+                        <div><span style="color:#ffd700; font-weight:bold;">― 金色の線</span>：双璧ペア</div>
+                    </div>
+
+                    <div class="panel info-panel" id="info-panel">
+                        <h3 id="info-name">未選択</h3>
+                        <div id="info-details">ノードをクリックするか、検索して詳細を表示してください。</div>
+                    </div>
+
+                    <div class="timeline-panel" id="timeline-panel">
+                        <span style="font-weight:bold; color:#00d2ff;">📅 期間:</span>
+                        <input type="date" id="date-start"> 〜 <input type="date" id="date-end">
+                        <button id="btn-apply-date">解析</button>
+                    </div>
+                </div>
+                
+                <div id="drop-zone">JSONをドロップ</div>
+            </div>
+        </div>
+
+        <!-- タブ2: チーム編成ツール -->
+        <div id="tab-team" class="tab-pane">
+            <div class="team-layout">
+                <!-- 左側：設定エリア -->
+                <div class="team-sidebar">
+                    <div style="margin-bottom: 15px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; border: 1px solid #2a3652; text-align: center;">
+                        <span style="font-size: 13px; color: #8b9bb4; font-weight: bold; display: block; margin-bottom: 10px;">① 参加プレイヤーの選択</span>
+                        <button id="btn-open-player-select" class="btn-green" style="width: 100%; padding: 10px; font-size: 14px; border-radius: 6px; margin-bottom: 10px;">👥 プレイヤーリストを開く</button>
+                        <div style="font-size: 14px;">選択中: <span id="selected-count-display" style="color:#06d6a0; font-weight:bold; font-size: 18px;">0</span> 人</div>
+                    </div>
+
+                    <div style="margin-bottom: 12px; display: flex; justify-content: space-around; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 6px; flex-wrap: wrap; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 13px; font-weight: bold; color: #8b9bb4;">チーム数:</span>
+                            <input type="number" id="num-teams-input" min="2" max="20" value="4" style="width: 50px; text-align: center; padding: 4px;">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 13px; font-weight: bold; color: #8b9bb4;">リーグ数:</span>
+                            <input type="number" id="num-leagues-input" min="1" max="10" value="1" style="width: 50px; text-align: center; padding: 4px;">
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 12px; background: rgba(0,210,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid #00d2ff33;">
+                        <label style="font-size: 12px; color: #00d2ff; font-weight: bold; display: block; margin-bottom: 4px;">🔄 ローリングデータ集計窓</label>
+                        <select id="rolling-select" style="width: 100%;">
+                            <option value="0">全期間（全データ）</option>
+                            <option value="10">直近 10 ゲーム</option>
+                            <option value="20" selected>直近 20 ゲーム</option>
+                            <option value="30">直近 30 ゲーム</option>
+                            <option value="50">直近 50 ゲーム</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 15px; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; border: 1px solid #2a3652;">
+                        <label style="font-size: 12px; color: #8b9bb4; display:block; text-align:center; margin-bottom: 8px; font-weight:bold;">重視バランス設定</label>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <div style="display: flex; align-items: center; font-size: 11px;">
+                                <span style="color:#00d2ff; width: 80px;">マンネリ防止</span>
+                                <input type="range" id="weight-manneri" min="0" max="100" value="50" style="flex:1;">
+                            </div>
+                            <div style="display: flex; align-items: center; font-size: 11px;">
+                                <span style="color:#ffbe0b; width: 80px;">戦力(μ)均等</span>
+                                <input type="range" id="weight-skill" min="0" max="100" value="50" style="flex:1;">
+                            </div>
+                            <div style="display: flex; align-items: center; font-size: 11px;">
+                                <span style="color:#ff4d6d; width: 80px;">攻撃力(F)均等</span>
+                                <input type="range" id="weight-flag" min="0" max="100" value="50" style="flex:1;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="btn-generate-teams" class="btn-green" style="width: 100%; padding: 12px; font-size: 15px; border-radius: 8px;">✨ チームを自動生成</button>
+                </div>
+
+                <!-- 右側：ドラフトボード・結果 -->
+                <div class="team-main">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #2a3652; padding-bottom: 8px; flex-shrink: 0; flex-wrap: wrap; gap:5px;">
+                        <h3 style="color: #fff; font-size: 15px;">📋 チーム編成 ドラフトボード</h3>
+                        <div id="ai-status" style="color:#06d6a0; font-size:12px; font-weight:bold;"></div>
+                    </div>
+
+                    <div id="team-chart-container" style="display:none;">
+                        <canvas id="teamComparisonChart"></canvas>
+                    </div>
+
+                    <p style="font-size:11px; color:#8b9bb4; text-align:center; margin-bottom: 8px;">
+                        <span class="pc-only">タグをドラッグ＆ドロップして移動できます</span>
+                    </p>
+
+                    <div id="team-result" style="flex: 1; overflow-y: auto;">
+                        <!-- プレビュー描画領域 -->
+                    </div>
+                    
+                    <button id="btn-export-csv" class="btn-green" style="margin-top:10px; width:100%; font-size:13px; padding:10px; display:none; flex-shrink: 0;">📥 CSV 形式で出力</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- モーダル 1: プレイヤー選択 -->
+    <div id="player-select-modal" class="modal-overlay">
+        <div class="modal-content-select">
+            <div class="modal-header">
+                <h2 style="color: #06d6a0; margin: 0; font-size: 18px;">👥 参加プレイヤー選択</h2>
+                <button class="modal-close" id="btn-close-player-select">&times;</button>
+            </div>
+            <div class="modal-body modal-body-col">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px;">
+                    <div style="display: flex; gap: 5px;">
+                        <button id="btn-check-all" style="padding: 4px 8px; font-size:11px; background:#1e2638; border:1px solid #00d2ff; color:#00d2ff; border-radius: 4px;">全選択</button>
+                        <button id="btn-uncheck-all" style="padding: 4px 8px; font-size:11px; background:#1e2638; border:1px solid #ff4d6d; color:#ff4d6d; border-radius: 4px;">全解除</button>
+                        <button id="btn-reset-fixed" style="padding: 4px 8px; font-size:11px; background:#1e2638; border:1px solid #ffbe0b; color:#ffbe0b; border-radius: 4px;">🔄 固定リセット</button>
+                    </div>
+                    <div style="font-size: 13px;">選択中: <span id="selected-count-modal" style="color:#06d6a0; font-weight:bold; font-size: 16px;">0</span> 人</div>
+                </div>
+                
+                <div>
+                    <input type="text" id="player-search-input" placeholder="🔍 プレイヤー名を検索..." style="width:100%;">
+                </div>
+                
+                <div style="display: flex; gap: 5px; align-items: center; background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px;">
+                    <span style="font-size:12px; color:#8b9bb4;">新規:</span>
+                    <input type="text" id="guest-name-input" placeholder="ゲスト名 (例: ヤマダ)" style="flex:1;">
+                    <button id="btn-add-guest" class="btn-green" style="padding: 4px 10px; font-size:12px;">👤 追加</button>
+                </div>
+
+                <div id="player-checkbox-list" style="background: rgba(0,0,0,0.4); border: 1px solid #3b486b; border-radius: 8px; padding: 6px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;">
+                    <div style="padding: 10px; text-align: center; color: #6c7d93; font-size: 12px;">JSONデータを読み込んでください</div>
+                </div>
+
+                <button id="btn-submit-player-select" class="btn-green" style="width: 100%; padding: 12px; font-size: 15px; border-radius: 8px; margin-top: 5px;">✅ 決定して閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- モーダル 2: プレイヤー個別分析 -->
+    <div id="player-modal" class="modal-overlay">
+        <div class="modal-content-player">
+            <div class="modal-header">
+                <h2 id="modal-player-name" style="color: #00d2ff; margin: 0; font-size: 18px;">プレイヤー詳細</h2>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <select id="player-rolling-select" style="font-size: 12px; padding: 4px;">
+                        <option value="25">直近 25 G</option>
+                        <option value="50">直近 50 G</option>
+                        <option value="0" selected>全期間</option>
+                    </select>
+                    <button class="modal-close" id="btn-close-player-modal">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div style="flex: 1; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display:flex; flex-direction:column; min-height: 250px;">
+                    <h3 style="color:#06d6a0; font-size:13px; text-align:center; margin-bottom:5px;">プレイスタイル (偏差値)</h3>
+                    <div style="flex:1; position:relative;"><canvas id="radarChart"></canvas></div>
+                </div>
+                <div style="flex: 1.5; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display:flex; flex-direction:column; min-height: 250px;">
+                    <h3 style="color:#00d2ff; font-size:13px; text-align:center; margin-bottom:5px;">実力(μ)・安定度(σ) 推移</h3>
+                    <div style="flex:1; position:relative;"><canvas id="lineChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // Microsoft Teams JS SDK 初期化 ＆ 判定
+        // ==========================================
+        const envBadge = document.getElementById('env-badge');
+        let isTeamsEnv = false;
+
+        if (typeof microsoftTeams !== 'undefined' && microsoftTeams.app) {
+            microsoftTeams.app.initialize().then(() => {
+                isTeamsEnv = true;
+                if (envBadge) envBadge.textContent = "Microsoft Teams Tab";
+                console.log("Microsoft Teams JS SDK initialized successfully.");
+                
+                microsoftTeams.app.getContext().then(context => {
+                    if (context.app && context.app.theme) applyTeamsTheme(context.app.theme);
+                }).catch(e => console.log("Context fetch notice:", e));
+
+                microsoftTeams.app.registerOnThemeChangeHandler(theme => {
+                    applyTeamsTheme(theme);
+                });
+            }).catch(err => {
+                console.log("Standalone mode (Teams SDK not in Teams container):", err);
+                if (envBadge) envBadge.textContent = "Standalone App";
+            });
+        } else {
+            if (envBadge) envBadge.textContent = "Standalone App";
+        }
+
+        function applyTeamsTheme(theme) {
+            document.body.classList.remove('teams-light', 'teams-contrast');
+            if (theme === 'contrast') {
+                document.body.classList.add('teams-contrast');
+            } else if (theme === 'default' || theme === 'light') {
+                document.body.classList.add('teams-light');
+            }
+        }
+
+        // ==========================================
+        // UI DOM 要素 参照
+        // ==========================================
+        const numTeamsInput = document.getElementById('num-teams-input');
+        const numLeaguesInput = document.getElementById('num-leagues-input');
+        const rollingSelect = document.getElementById('rolling-select');
+        const weightManneriInput = document.getElementById('weight-manneri');
+        const weightSkillInput = document.getElementById('weight-skill');
+        const weightFlagInput = document.getElementById('weight-flag');
+        const btnGenerateTeams = document.getElementById('btn-generate-teams');
+        const btnExportCsv = document.getElementById('btn-export-csv');
+        const aiStatus = document.getElementById('ai-status');
+
+        // ==========================================
+        // グローバル変数
+        // ==========================================
+        let rawJsonData = null;
+        let network = null;
+        let currentNodes = null;
+        let currentEdges = null;
+        let unFilteredEdges = [];
+        
+        const colorPalette = [
+            { name: 'レッド', hex: '#E53935' }, { name: 'ダークブルー', hex: '#1565C0' },
+            { name: 'スカイブルー', hex: '#29B6F6' }, { name: 'エメラルド', hex: '#00BFA5' },
+            { name: 'ライトグリーン', hex: '#8BC34A' }, { name: 'ダークグリーン', hex: '#2E7D32' },
+            { name: 'モスグリーン', hex: '#556B2F' }, { name: 'イエロー', hex: '#F4D03F' },
+            { name: 'レモンイエロー', hex: '#FFEB3B' }, { name: 'オレンジ', hex: '#FF9800' },
+            { name: 'ピンク', hex: '#EC407A' }, { name: 'パープル', hex: '#9C27B0' },
+            { name: 'ゴールド', hex: '#D4AF37' }, { name: 'シルバー', hex: '#BDBDBD' },
+            { name: 'ダークグレー', hex: '#546E7A' }, { name: 'ブラック', hex: '#212121' },
+            { name: 'ホワイト', hex: '#FFFFFF' }
+        ];
+
+        let globalMatchTeams = {}; let globalTeammateCounts = {}; let globalPlayerNames = {};      
+        let globalPlayerHtmlNames = {}; let globalPlayerRatings = {}; let globalPlayerFlagCounts = {}; 
+        let globalPlayerLastDate = {}; let playerRawGames = {}; 
+        
+        let selectedTeamPlayers = new Set(); 
+        let fixedTeamAssignments = {};
+        let aiAssignedTeams = {};
+        let guestCounter = 1;
+
+        let globalTeamSettings = {};
+        function initTeamSettings(numTeams) {
+            let availableColors = [...colorPalette];
+            for (let i = availableColors.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [availableColors[i], availableColors[j]] = [availableColors[j], availableColors[i]];
+            }
+            for(let i=0; i<Math.max(20, numTeams); i++) {
+                if(!globalTeamSettings[i]) {
+                    globalTeamSettings[i] = { name: `チーム ${String.fromCharCode(65 + i)}`, color: availableColors[i % availableColors.length].hex };
+                }
+            }
+        }
+        initTeamSettings(20);
+
+        let radarChartObj = null; let lineChartObj = null; let teamComparisonChartObj = null; let activePlayerIdForModal = null;
+
+        // ==========================================
+        // タブ・パネル開閉 制御
+        // ==========================================
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                const targetId = btn.getAttribute('data-tab');
+                document.getElementById(targetId).classList.add('active');
+                if(targetId === 'tab-network' && network) setTimeout(() => network.fit(), 100);
+                if(targetId === 'tab-team' && rawJsonData) renderLivePreview();
+            });
+        });
+
+        document.getElementById('btn-toggle-pairs').addEventListener('click', () => {
+            const p = document.getElementById('pair-panel');
+            p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+        });
+        document.getElementById('btn-close-pairs').addEventListener('click', () => {
+            document.getElementById('pair-panel').style.display = 'none';
+        });
+
+        const playerSelectModal = document.getElementById('player-select-modal');
+        document.getElementById('btn-open-player-select').addEventListener('click', () => playerSelectModal.style.display = 'flex');
+        document.getElementById('btn-close-player-select').addEventListener('click', () => playerSelectModal.style.display = 'none');
+        document.getElementById('btn-submit-player-select').addEventListener('click', () => playerSelectModal.style.display = 'none');
+        playerSelectModal.addEventListener('click', (e) => { if (e.target === playerSelectModal) playerSelectModal.style.display = 'none'; });
+
+        // ==========================================
+        // イベントリスナー登録
+        // ==========================================
+        const fileInput = document.getElementById('file-input');
+        const dropZone = document.getElementById('drop-zone');
+        const filterSlider = document.getElementById('edge-filter');
+        const dateStart = document.getElementById('date-start');
+        const dateEnd = document.getElementById('date-end');
+        
+        const playerModal = document.getElementById('player-modal');
+        const btnClosePlayerModal = document.getElementById('btn-close-player-modal');
+        const playerRollingSelect = document.getElementById('player-rolling-select');
+        
+        const networkSearchInput = document.getElementById('network-search-input');
+        const playersDatalist = document.getElementById('players-list');
+
+        window.addEventListener('load', () => {
+            if (typeof vis === 'undefined') { alert('⚠️ 描画ライブラリ (Vis.js) の読み込みに失敗しました。'); return; }
+            currentNodes = new vis.DataSet(); currentEdges = new vis.DataSet();
+        });
+
+        btnClosePlayerModal.addEventListener('click', () => { playerModal.style.display = 'none'; });
+        playerModal.addEventListener('click', (e) => { if (e.target === playerModal) playerModal.style.display = 'none'; });
+
+        filterSlider.addEventListener('input', (e) => {
+            document.getElementById('filter-val').textContent = `${e.target.value}回`;
+            applyEdgeFilter();
+        });
+
+        rollingSelect.addEventListener('change', () => { renderLivePreview(); });
+
+        document.getElementById('player-search-input').addEventListener('input', function() {
+            const term = this.value.toLowerCase();
+            document.querySelectorAll('.player-row').forEach(row => {
+                const name = row.querySelector('span').textContent.toLowerCase();
+                row.style.display = name.includes(term) ? 'flex' : 'none';
+            });
+        });
+
+        networkSearchInput.addEventListener('change', (e) => {
+            const val = e.target.value;
+            const option = Array.from(playersDatalist.options).find(opt => opt.value === val);
+            if (option && network) {
+                const pid = option.dataset.id;
+                network.focus(pid, { scale: 1.2, animation: { duration: 800 } });
+                network.selectNodes([pid]);
+                updateInfo(pid);
+                networkSearchInput.blur(); 
+            }
+        });
+
+        document.getElementById('btn-add-guest').addEventListener('click', () => {
+            const inputEl = document.getElementById('guest-name-input');
+            const nick = inputEl.value.trim() || 'ゲスト';
+            const guestId = `${nick} (guest${String(guestCounter).padStart(2, '0')})`;
+            guestCounter++;
+            let minMu = 25.0;
+            const activeIds = Array.from(selectedTeamPlayers);
+            if (activeIds.length > 0) {
+                activeIds.forEach(pid => { const mu = globalPlayerRatings[pid] || 25.0; if (mu < minMu) minMu = mu; });
+            }
+            minMu = Math.max(15.0, minMu); 
+            globalPlayerNames[guestId] = guestId; globalPlayerHtmlNames[guestId] = guestId;
+            globalPlayerRatings[guestId] = minMu; globalPlayerFlagCounts[guestId] = 0;
+            globalPlayerLastDate[guestId] = "9999-99-99"; playerRawGames[guestId] = []; 
+            if (currentNodes) {
+                currentNodes.add({
+                    id: guestId, label: guestId, value: 1, rawGames: 0, lastDate: "9999-99-99", rawPartners: "ゲスト参加",
+                    color: { background: '#ff4d6d', border: '#fff' }, font: { color: '#fff', size: 11 }
+                });
+            }
+            selectedTeamPlayers.add(guestId); 
+            updateTeamSelectCheckboxes(currentNodes ? currentNodes.get() : []);
+            renderLivePreview(); inputEl.value = ''; 
+        });
+
+        numTeamsInput.addEventListener('change', () => { 
+            const newNumTeams = parseInt(numTeamsInput.value) || 4;
+            Object.keys(fixedTeamAssignments).forEach(pid => { if (fixedTeamAssignments[pid] >= newNumTeams) delete fixedTeamAssignments[pid]; });
+            Object.keys(aiAssignedTeams).forEach(pid => { if (aiAssignedTeams[pid] >= newNumTeams) delete aiAssignedTeams[pid]; });
+            initTeamSettings(newNumTeams);
+            updateTeamSelectCheckboxes(currentNodes ? currentNodes.get() : []); 
+            renderLivePreview();
+        });
+
+        // ==========================================
+        // データ読込 ＆ メイン処理
+        // ==========================================
+        fileInput.addEventListener('change', (e) => loadJsonFile(e.target.files[0]));
+        window.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('active'); });
+        window.addEventListener('dragleave', e => { if (e.target === dropZone) dropZone.classList.remove('active'); });
+        window.addEventListener('drop', e => {
+            e.preventDefault(); dropZone.classList.remove('active');
+            if (e.dataTransfer.files.length > 0) loadJsonFile(e.dataTransfer.files[0]);
+        });
+
+        function loadJsonFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    rawJsonData = JSON.parse(e.target.result);
+                    document.getElementById('initial-message').style.display = 'none';
+                    document.getElementById('network-tools-bar').style.display = 'flex';
+                    document.getElementById('legend-panel').style.display = 'block';
+                    document.getElementById('info-panel').style.display = 'block';
+                    document.getElementById('timeline-panel').style.display = 'flex';
+                    initDateRange();
+                    processDataAndRender();
+                    const nodes = currentNodes ? currentNodes.get() : [];
+                    updateTeamSelectCheckboxes(nodes);
+                } catch (err) { alert('データ処理エラー:\n' + err.message); }
+            };
+            reader.readAsText(file);
+        }
+
+        function initDateRange() {
+            if(!rawJsonData) return;
+            let minDate = "2099-12-31", maxDate = "2000-01-01";
+            let eventsList = Array.isArray(rawJsonData.events) ? rawJsonData.events : Object.values(rawJsonData.events || {});
+            eventsList.forEach(ev => { if(ev && ev.date) { if(ev.date < minDate) minDate = ev.date; if(ev.date > maxDate) maxDate = ev.date; } });
+            if(minDate !== "2099-12-31") { dateStart.value = minDate; dateEnd.value = maxDate; }
+        }
+
+        document.getElementById('btn-apply-date').addEventListener('click', () => { if (rawJsonData) processDataAndRender(); });
+
+        function processDataAndRender() {
+            if (!rawJsonData) return;
+            const startStr = dateStart.value || "2000-01-01";
+            const endStr = dateEnd.value || "2099-12-31";
+            const validEventIds = new Set(); const eventDateMap = {};
+            let eventsList = Array.isArray(rawJsonData.events) ? rawJsonData.events : Object.values(rawJsonData.events || {});
+            eventsList.forEach(ev => { if (ev && ev.id) { if (ev.date) eventDateMap[ev.id] = ev.date; if (!ev.date || (ev.date >= startStr && ev.date <= endStr)) validEventIds.add(ev.id); } });
+            const hasEventsData = eventsList.length > 0;
+
+            globalPlayerNames = {}; globalPlayerHtmlNames = {}; globalPlayerRatings = {}; globalPlayerFlagCounts = {}; globalPlayerLastDate = {};
+            globalTeammateCounts = {}; globalMatchTeams = {}; playerRawGames = {};
+            const matchTeams = {}; const uniqueTeammates = {}; const playerGameCounts = {}; 
+
+            let playersList = Array.isArray(rawJsonData.players) ? rawJsonData.players : Object.values(rawJsonData.players || {});
+
+            playersList.forEach(p => {
+                if(!p || (!p.playerId && !p.id)) return;
+                const pid = p.playerId || p.id;
+                let plainName = p.nick || String(pid).substring(0, 8); let htmlName = plainName;
+                if (p.nick && p.realName && p.nick !== p.realName) {
+                    plainName = `${p.nick} (${p.realName})`; htmlName = `${p.nick} <span style="font-size: 0.85em; color: #8b9bb4;">(${p.realName})</span>`;
+                } else if (!p.nick && p.realName) { plainName = p.realName; htmlName = p.realName; }
+
+                globalPlayerNames[pid] = plainName; globalPlayerHtmlNames[pid] = htmlName;
+                globalPlayerRatings[pid] = (p.ratings && p.ratings.global && p.ratings.global.mu) ? p.ratings.global.mu : (p.mu || 25.0);
+                globalPlayerFlagCounts[pid] = p.flagCount || 0;
+                
+                let validGames = (p.games || []).filter(g => { if (!g) return false; if (hasEventsData && g.eventId) return validEventIds.has(g.eventId); return true; });
+                playerRawGames[pid] = validGames;
+                let pMaxDate = "0000-00-00";
+
+                validGames.forEach(g => {
+                    const key = `${g.eventId||'ev'}_${g.matchId||'m'}_${g.myTeam||'tm'}`;
+                    if (!matchTeams[key]) matchTeams[key] = { players: new Set(), won: false };
+                    matchTeams[key].players.add(pid);
+                    if (g.won || g.result === 'win') matchTeams[key].won = true;
+
+                    const mKey = `${g.eventId||'ev'}_${g.matchId||'m'}`;
+                    if (!globalMatchTeams[mKey]) globalMatchTeams[mKey] = {};
+                    if (!globalMatchTeams[mKey][g.myTeam]) globalMatchTeams[mKey][g.myTeam] = [];
+                    globalMatchTeams[mKey][g.myTeam].push(pid);
+                    
+                    let gDate = g.date || (g.eventId && eventDateMap[g.eventId]) || "0000-00-00";
+                    if (gDate > pMaxDate) pMaxDate = gDate;
+                });
+                globalPlayerLastDate[pid] = pMaxDate;
+            });
+
+            const pairStats = {}; 
+            Object.values(matchTeams).forEach(info => {
+                const pids = Array.from(info.players);
+                pids.forEach((p1, i) => {
+                    playerGameCounts[p1] = (playerGameCounts[p1] || 0) + 1;
+                    if(!globalTeammateCounts[p1]) globalTeammateCounts[p1] = {};
+                    if(!uniqueTeammates[p1]) uniqueTeammates[p1] = new Set();
+                    for (let j = i + 1; j < pids.length; j++) {
+                        const p2 = pids[j];
+                        globalTeammateCounts[p1][p2] = (globalTeammateCounts[p1][p2] || 0) + 1;
+                        if(!globalTeammateCounts[p2]) globalTeammateCounts[p2] = {};
+                        globalTeammateCounts[p2][p1] = (globalTeammateCounts[p2][p1] || 0) + 1;
+                        uniqueTeammates[p1].add(p2); if(!uniqueTeammates[p2]) uniqueTeammates[p2] = new Set(); uniqueTeammates[p2].add(p1);
+                        const pairKey = [p1, p2].sort().join('|');
+                        if (!pairStats[pairKey]) pairStats[pairKey] = { total: 0, wins: 0, p1: p1, p2: p2 };
+                        pairStats[pairKey].total++; if (info.won) pairStats[pairKey].wins++;
+                    }
+                });
+            });
+
+            let pairArr = Object.values(pairStats).map(p => ({ ...p, score: p.wins * 10 + p.total }));
+            pairArr.sort((a, b) => b.score - a.score);
+            const topPairs = pairArr.slice(0, 10);
+            const topPairKeys = new Set(topPairs.map(p => p.p1 + '|' + p.p2));
+
+            const pairListEl = document.getElementById('pair-list');
+            pairListEl.innerHTML = '';
+            if (topPairs.length === 0) {
+                pairListEl.textContent = 'ペアデータなし';
+            } else {
+                const frag = document.createDocumentFragment();
+                topPairs.forEach((p, idx) => {
+                    const div = document.createElement('div'); div.className = 'pair-item'; div.onclick = () => focusPair(p.p1, p.p2);
+                    div.innerHTML = `<span class="pair-title">${globalPlayerHtmlNames[p.p1]} × ${globalPlayerHtmlNames[p.p2]}</span><span class="pair-desc">${idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':(idx+1)+'位'} ${p.wins}勝</span>`;
+                    frag.appendChild(div);
+                });
+                pairListEl.appendChild(frag);
+            }
+
+            const nodesArr = [];
+            playersDatalist.innerHTML = '';
+            const datalistFrag = document.createDocumentFragment();
+
+            Object.keys(playerGameCounts).forEach(pid => {
+                const uCnt = uniqueTeammates[pid] ? uniqueTeammates[pid].size : 0;
+                if(uCnt === 0) return;
+                const cIdx = Math.floor(Math.random() * colorPalette.length);
+                let partners = Object.entries(globalTeammateCounts[pid] || {}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x => `${globalPlayerNames[x[0]] || x[0]} (${x[1]}回)`).join(', ');
+                nodesArr.push({
+                    id: pid, label: globalPlayerNames[pid], value: uCnt, rawGames: playerGameCounts[pid], rawPartners: partners, lastDate: globalPlayerLastDate[pid],
+                    color: { background: colorPalette[cIdx].hex, border: '#fff', highlight: { border: '#00d2ff' } }, font: { color: '#fff', size: uCnt > 20 ? 14 : 11 }
+                });
+                
+                const opt = document.createElement('option');
+                opt.value = `${globalPlayerNames[pid]} (${uCnt}人)`;
+                opt.dataset.id = pid;
+                datalistFrag.appendChild(opt);
+            });
+            playersDatalist.appendChild(datalistFrag);
+
+            updateTeamSelectCheckboxes(nodesArr);
+            renderLivePreview();
+
+            unFilteredEdges = [];
+            const edgeDeduper = new Set();
+            Object.keys(globalTeammateCounts).forEach(p1 => {
+                Object.keys(globalTeammateCounts[p1]).forEach(p2 => {
+                    const key = [p1, p2].sort().join('|');
+                    if (edgeDeduper.has(key)) return;
+                    edgeDeduper.add(key);
+                    const w = globalTeammateCounts[p1][p2];
+                    const isSp = topPairKeys.has(key);
+                    unFilteredEdges.push({
+                        from: p1, to: p2, value: isSp ? w * 2 : w, originalWeight: w, isSpecial: isSp,
+                        title: isSp ? `🌟 最強の双璧: ${w}回共闘` : `${w}回共闘`,
+                        color: isSp ? { color: '#ffd700', highlight: '#fff' } : { color: 'rgba(100,180,255,0.15)', highlight: '#00d2ff' },
+                        width: isSp ? 4 : 1, shadow: isSp ? { enabled: true, color: '#ffea00', size: 10 } : false
+                    });
+                });
+            });
+
+            if (currentNodes) { currentNodes.clear(); currentNodes.add(nodesArr); }
+            applyEdgeFilter();
+
+            if(!network && typeof vis !== 'undefined') {
+                network = new vis.Network(document.getElementById('network'), { nodes: currentNodes, edges: currentEdges }, {
+                    nodes: { shape: 'dot', scaling: { min: 10, max: 40, label: {enabled: true, min:10, max:20} }, borderWidth: 1.5 },
+                    edges: { smooth: { type: 'continuous' } }, physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -30 } }
+                });
+                network.on('click', (p) => { if(p.nodes.length) updateInfo(p.nodes[0]); });
+            }
+        }
+
+        function applyEdgeFilter() {
+            if(!unFilteredEdges.length || !currentEdges) return;
+            const minW = parseInt(filterSlider.value);
+            currentEdges.clear();
+            currentEdges.add(unFilteredEdges.filter(e => e.originalWeight >= minW || e.isSpecial));
+        }
+
+        function focusPair(p1, p2) {
+            if(!network || !currentNodes) return;
+            if(currentNodes.get(p1) && currentNodes.get(p2)) { network.fit({ nodes: [p1, p2], animation: { duration: 800 } }); network.selectNodes([p1, p2]); } 
+            else if (currentNodes.get(p1)) { network.focus(p1, { scale: 1.2, animation: { duration: 800 } }); network.selectNodes([p1]); }
+            else if (currentNodes.get(p2)) { network.focus(p2, { scale: 1.2, animation: { duration: 800 } }); network.selectNodes([p2]); }
+        }
+
+        window.resetZoom = function() { if(network) network.fit({ animation: { duration: 800 } }); }
+
+        window.openPlayerModal = function(pid) {
+            activePlayerIdForModal = pid;
+            const pName = globalPlayerNames[pid] || pid;
+            document.getElementById('modal-player-name').textContent = `${pName} - 詳細分析`;
+            document.getElementById('player-modal').style.display = 'flex';
+            updatePlayerCharts();
+        };
+
+        function updateInfo(pid) {
+            const node = currentNodes.get(pid);
+            if(!node) return;
+            const ratingMu = (globalPlayerRatings[pid] !== undefined) ? globalPlayerRatings[pid].toFixed(2) : "不明";
+            const flagCount = globalPlayerFlagCounts[pid] !== undefined ? globalPlayerFlagCounts[pid] : 0;
+            
+            document.getElementById('info-name').innerHTML = `${globalPlayerHtmlNames[pid]} <span class="badge" style="font-size:12px; font-weight:normal; margin-left:8px;">${node.value}人と共闘</span>`;
+            document.getElementById('info-details').innerHTML = `
+                <div style="color:#ffd700; margin-bottom:5px;">• <b>強さ(μ)</b>: ${ratingMu}</div>
+                <div style="color:#ff4d6d; margin-bottom:5px;">• <b>フラッグ数</b>: ${flagCount}</div>
+                <div>• <b>指定期間の出場数</b>: ${node.rawGames} 試合</div>
+                <div style="margin-top:8px; color:#8b9bb4;">よく組む相手:</div>
+                <div>${node.rawPartners}</div>
+                <button class="btn-green" style="width:100%; margin-top:12px; padding:8px; font-size:13px;" onclick="window.openPlayerModal('${pid}')">📊 個別詳細分析を開く</button>
+            `;
+        }
+
+        // ==========================================
+        // プレイヤー個別分析グラフ処理
+        // ==========================================
+        playerRollingSelect.addEventListener('change', updatePlayerCharts);
+
+        function updatePlayerCharts() {
+            if (!activePlayerIdForModal) return;
+            const pid = activePlayerIdForModal;
+            const N = parseInt(playerRollingSelect.value);
+            
+            const allPids = Object.keys(playerRawGames);
+            const validStats = []; const statsMap = {};
+            
+            allPids.forEach(id => {
+                let games = playerRawGames[id] || [];
+                let mu = 25.0; let sigma = 8.33;
+                games.forEach(g => {
+                    if (g.won || g.result === 'win') mu += 0.8; else if (g.lost || g.result === 'loss') mu -= 0.6; else mu += 0.1;
+                    if (g.gotFlag) mu += 0.4;
+                    sigma = Math.max(2.0, sigma - 0.1);
+                });
+                let consistencyScore = Math.max(0, 100 - (sigma / 8.33 * 100));
+                
+                if (N > 0 && games.length > N) games = games.slice(-N);
+                
+                let winCount = 0; let flagCount = 0;
+                let allies = new Set(); let enemies = new Set();
+                
+                games.forEach(g => {
+                    if (g.won || g.result === 'win') winCount++;
+                    if (g.gotFlag) flagCount++;
+                    const mKey = `${g.eventId||'ev'}_${g.matchId||'m'}`;
+                    const matchInfo = globalMatchTeams[mKey];
+                    if (matchInfo) {
+                        const myTeamMates = matchInfo[g.myTeam] || [];
+                        myTeamMates.forEach(mid => { if (mid !== id) allies.add(mid); });
+                        Object.keys(matchInfo).forEach(tName => { if (tName !== g.myTeam) matchInfo[tName].forEach(eid => enemies.add(eid)); });
+                    }
+                });
+                
+                if (games.length > 0) {
+                    const st = { id: id, flagPerGame: flagCount / games.length, winRate: winCount / games.length, uniqueAllies: allies.size, uniqueEnemies: enemies.size, consistencyScore: consistencyScore };
+                    validStats.push(st); statsMap[id] = st;
+                }
+            });
+
+            if (!statsMap[pid]) return; 
+
+            const calcMeanAndStdDev = (key) => {
+                const mean = validStats.reduce((sum, st) => sum + st[key], 0) / validStats.length;
+                const variance = validStats.reduce((sum, st) => sum + Math.pow(st[key] - mean, 2), 0) / validStats.length;
+                return { mean, stdDev: Math.sqrt(variance) || 1 }; 
+            };
+
+            const statsKeys = ['flagPerGame', 'winRate', 'uniqueAllies', 'consistencyScore', 'uniqueEnemies'];
+            const statMetrics = {}; statsKeys.forEach(key => { statMetrics[key] = calcMeanAndStdDev(key); });
+
+            const mySt = statsMap[pid];
+            const radarData = statsKeys.map(key => {
+                const metrics = statMetrics[key];
+                let tScore = 50 + 10 * ((mySt[key] - metrics.mean) / metrics.stdDev);
+                return Math.max(0, Math.min(100, tScore)); 
+            });
+            
+            if (radarChartObj) radarChartObj.destroy();
+            Chart.defaults.color = '#8b9bb4';
+            radarChartObj = new Chart(document.getElementById('radarChart').getContext('2d'), {
+                type: 'radar',
+                data: {
+                    labels: ['攻撃力(F/G)', '勝率', '味方バラエティ', '安定度(σ)', '敵バラエティ'],
+                    datasets: [{ label: '偏差値', data: radarData, backgroundColor: 'rgba(6, 214, 160, 0.4)', borderColor: '#06d6a0', pointBackgroundColor: '#06d6a0', pointRadius: 4, borderWidth: 2 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { r: { min: 20, max: 80, ticks: { display: false, stepSize: 10 }, grid: { color: 'rgba(255,255,255,0.1)' }, pointLabels: { color: '#e0e6ed', font: { size: 11, weight: 'bold' } }, angleLines: { color: 'rgba(255,255,255,0.1)' } } },
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ` 偏差値: ${ctx.raw.toFixed(1)}` } } }
+                }
+            });
+            
+            let history = []; let mu_hist = 25.0; let sigma_hist = 8.33;
+            let p_games = playerRawGames[pid] || [];
+            p_games.forEach((g, idx) => {
+                if (g.won || g.result === 'win') mu_hist += 0.8; else if (g.lost || g.result === 'loss') mu_hist -= 0.6; else mu_hist += 0.1;
+                if (g.gotFlag) mu_hist += 0.4;
+                sigma_hist = Math.max(2.0, sigma_hist - 0.1);
+                let dLabel = g.date ? String(g.date).substring(0,10) : `G${idx+1}`;
+                history.push({ idx: idx + 1, dateLabel: dLabel, mu: mu_hist, sigma: sigma_hist, gotFlag: !!g.gotFlag });
+            });
+            
+            if (N > 0 && history.length > N) history = history.slice(-N);
+            
+            const labels = history.map(h => h.dateLabel);
+            const muPoints = history.map(h => h.mu);
+            const muPlus = history.map(h => h.mu + h.sigma);
+            const muMinus = history.map(h => h.mu - h.sigma);
+            const pointRadii = history.map(h => h.gotFlag ? 8 : 2);
+            const pointColors = history.map(h => h.gotFlag ? '#ff4d6d' : '#00d2ff');
+            const pointStyles = history.map(h => h.gotFlag ? 'star' : 'circle');
+            
+            if (lineChartObj) lineChartObj.destroy();
+            lineChartObj = new Chart(document.getElementById('lineChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'μ (強さ)', data: muPoints, borderColor: '#00d2ff', backgroundColor: '#00d2ff', fill: false, tension: 0.1, pointRadius: pointRadii, pointBackgroundColor: pointColors, pointBorderColor: pointColors, pointStyle: pointStyles, borderWidth: 2 },
+                        { label: 'μ + σ', data: muPlus, borderColor: 'transparent', backgroundColor: 'transparent', fill: false, pointRadius: 0 },
+                        { label: 'μ - σ', data: muMinus, borderColor: 'transparent', backgroundColor: 'rgba(0, 210, 255, 0.1)', fill: '-1', pointRadius: 0 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { x: { ticks: { color: '#8b9bb4', font: {size: 10} }, grid: { color: 'rgba(255,255,255,0.05)' } }, y: { ticks: { color: '#8b9bb4' }, grid: { color: 'rgba(255,255,255,0.05)' } } },
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { if (ctx.datasetIndex !== 0) return null; const h = history[ctx.dataIndex]; let lbl = `μ: ${h.mu.toFixed(2)}`; if (h.gotFlag) lbl += ` 🚩 フラッグ獲得！`; return lbl; } } } }
+                }
+            });
+        }
+
+        // ==========================================
+        // チーム編成・UI処理
+        // ==========================================
+        window.updateTeamColor = function(idx, color) { globalTeamSettings[idx].color = color; renderLivePreview(); };
+        window.updateTeamName = function(idx, name) { globalTeamSettings[idx].name = name; };
+        
+        window.emptyTeam = function(idx) {
+            Object.keys(fixedTeamAssignments).forEach(pid => { if (fixedTeamAssignments[pid] === idx) delete fixedTeamAssignments[pid]; });
+            Object.keys(aiAssignedTeams).forEach(pid => { if (aiAssignedTeams[pid] === idx) delete aiAssignedTeams[pid]; });
+            updateSelectedCount(); renderLivePreview(); aiStatus.innerHTML = "";
+        };
+
+        window.dragStart = function(ev, pid) { ev.dataTransfer.setData("pid", pid); };
+        window.allowDrop = function(ev) { ev.preventDefault(); const box = ev.currentTarget; if (!box.classList.contains('drag-over')) box.classList.add('drag-over'); };
+        window.dragLeave = function(ev) { if (!ev.currentTarget.contains(ev.relatedTarget)) { ev.currentTarget.classList.remove('drag-over'); } };
+
+        window.handleDrop = function(ev, teamIdx) {
+            ev.preventDefault(); ev.currentTarget.classList.remove('drag-over');
+            const pid = ev.dataTransfer.getData("pid");
+            if(!pid) return;
+
+            if (teamIdx >= 0) fixedTeamAssignments[pid] = teamIdx; else delete fixedTeamAssignments[pid];
+            delete aiAssignedTeams[pid]; 
+            aiStatus.innerHTML = ""; updateSelectedCount(); renderLivePreview();
+        };
+
+        function getPlayerRollingStats(pid, rollingWindow) {
+            let games = playerRawGames[pid] || [];
+            if (rollingWindow > 0 && games.length > rollingWindow) games = games.slice(-rollingWindow); 
+            let flags = 0; let mu = 25.0;
+            if (games.length === 0 && pid.includes("(guest")) { mu = globalPlayerRatings[pid] || 15.0; } 
+            else {
+                games.forEach(g => {
+                    if (g.won || g.result === 'win') mu += 0.8; else if (g.lost || g.result === 'loss') mu -= 0.6; else mu += 0.1;
+                    if (g.gotFlag) { flags++; mu += 0.4; }
+                });
+            }
+            return { mu: mu, flags: flags };
+        }
+
+        function updateTeamComparisonChart(teams, teamStats, numTeams) {
+            const ctx = document.getElementById('teamComparisonChart').getContext('2d');
+            const labels = teams.map((_, idx) => globalTeamSettings[idx].name);
+            const muData = teamStats.map(st => st.sumMu); const fData = teamStats.map(st => st.sumF);
+            const bgColors = teams.map((_, idx) => globalTeamSettings[idx].color + '99'); 
+            const borderColors = teams.map((_, idx) => globalTeamSettings[idx].color);
+
+            if (teamComparisonChartObj) {
+                teamComparisonChartObj.data.labels = labels;
+                teamComparisonChartObj.data.datasets[0].data = muData; teamComparisonChartObj.data.datasets[0].backgroundColor = bgColors; teamComparisonChartObj.data.datasets[0].borderColor = borderColors;
+                teamComparisonChartObj.data.datasets[1].data = fData; teamComparisonChartObj.update();
+            } else {
+                Chart.defaults.color = '#8b9bb4';
+                teamComparisonChartObj = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            { label: '戦力(μ)', data: muData, backgroundColor: bgColors, borderColor: borderColors, borderWidth: 1, yAxisID: 'y' },
+                            { label: '攻撃力(F)', data: fData, backgroundColor: 'rgba(255, 77, 109, 0.5)', borderColor: '#ff4d6d', borderWidth: 1, yAxisID: 'y1' }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                        plugins: { legend: { display: true, labels: { boxWidth: 10, font: { size: 10 } } } },
+                        scales: {
+                            x: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                            y: { type: 'linear', display: true, position: 'left', title: { display: true, text: '戦力(μ)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                            y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: '攻撃力(F)', font: { size: 10 } }, grid: { drawOnChartArea: false } }
+                        }
+                    }
+                });
+            }
+        }
+
+        function getLeagueName(teamIdx, numTeams, numLeagues) {
+            const teamsPerLeague = Math.ceil(numTeams / numLeagues);
+            const leagueIdx = Math.floor(teamIdx / teamsPerLeague);
+            const base = ['X', 'Y', 'Z']; let name = base[leagueIdx % 3];
+            let cycle = Math.floor(leagueIdx / 3); if (cycle > 0) name += (cycle + 1);
+            return name + "リーグ";
+        }
+
+        btnExportCsv.addEventListener('click', () => {
+            const numTeams = parseInt(numTeamsInput.value) || 4; const numLeagues = parseInt(numLeaguesInput.value) || 1;
+            let draftTeams = Array.from({length: numTeams}, () => []); let benchPlayers = [];
+            
+            selectedTeamPlayers.forEach(pid => {
+                let tIdx = fixedTeamAssignments[pid]; if(tIdx === undefined) tIdx = aiAssignedTeams[pid];
+                if (tIdx !== undefined && tIdx >= 0 && tIdx < numTeams) draftTeams[tIdx].push(pid); else benchPlayers.push(pid);
+            });
+
+            let csvContent = "code,team,color,league,player,bib,id\n";
+            draftTeams.forEach((tm, idx) => {
+                const code = String.fromCharCode(65 + idx); const teamName = globalTeamSettings[idx].name;
+                const color = globalTeamSettings[idx].color; const leagueName = getLeagueName(idx, numTeams, numLeagues);
+                csvContent += `${code},${teamName},${color},${leagueName},,,\n`;
+                tm.forEach((pid, pIdx) => {
+                    const bib = pIdx + 1; let playerName = ""; let outputId = pid;
+                    if (pid.includes("(guest")) { playerName = globalPlayerNames[pid].split(" (guest")[0]; outputId = "guest"; } else { playerName = ""; }
+                    csvContent += `${code},${teamName},,,${playerName},${bib},${outputId}\n`;
+                });
+            });
+            benchPlayers.forEach(pid => {
+                let playerName = ""; let outputId = pid;
+                if (pid.includes("(guest")) { playerName = globalPlayerNames[pid].split(" (guest")[0]; outputId = "guest"; } else { playerName = globalPlayerNames[pid] || pid; }
+                csvContent += `,,,,${playerName},,${outputId}\n`;
+            });
+            
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const blob = new Blob([bom, csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url;
+            a.download = `FLAGHUNT_Nexus_Teams_${new Date().getTime()}.csv`; a.click(); URL.revokeObjectURL(url);
+        });
+
+        function renderLivePreview() {
+            const numTeams = parseInt(numTeamsInput.value) || 4; const rollingWindow = parseInt(rollingSelect.value) || 0;
+            const resultDiv = document.getElementById('team-result'); const chartContainer = document.getElementById('team-chart-container');
+            
+            let teams = Array.from({length: numTeams}, () => []); let autoPlayers = [];
+            
+            selectedTeamPlayers.forEach(pid => {
+                let tIdx = fixedTeamAssignments[pid]; if(tIdx === undefined) tIdx = aiAssignedTeams[pid];
+                if (tIdx !== undefined && tIdx >= 0 && tIdx < numTeams) teams[tIdx].push(pid); else autoPlayers.push(pid);
+            });
+
+            btnExportCsv.style.display = selectedTeamPlayers.size > 0 ? 'block' : 'none';
+
+            let maxMu = 0.1, maxF = 0.1;
+            let teamStats = teams.map(tm => {
+                let sumMu = 0, sumF = 0;
+                tm.forEach(pid => { const st = getPlayerRollingStats(pid, rollingWindow); sumMu += st.mu; sumF += st.flags; });
+                if(sumMu > maxMu) maxMu = sumMu; if(sumF > maxF) maxF = sumF;
+                return { sumMu, sumF };
+            });
+
+            if (numTeams > 0 && selectedTeamPlayers.size > 0) {
+                chartContainer.style.display = 'block'; updateTeamComparisonChart(teams, teamStats, numTeams);
+            } else { chartContainer.style.display = 'none'; }
+
+            document.querySelectorAll('.player-row').forEach(row => {
+                const cb = row.querySelector('input[type="checkbox"]'); const sel = row.querySelector('.fixed-select');
+                if(cb && sel && cb.checked) {
+                    const pid = cb.value; const val = fixedTeamAssignments[pid] ?? aiAssignedTeams[pid] ?? -1; sel.value = val;
+                }
+            });
+
+            let html = ``;
+            const colorOptionsHTML = colorPalette.map(c => `<option value="${c.hex}">${c.name}</option>`).join('');
+
+            teams.forEach((tm, idx) => {
+                let names = tm.map(pid => `<span class="selected-tag" draggable="true" ondragstart="dragStart(event, '${pid}')" style="cursor:grab; border-color:${globalTeamSettings[idx].color}; background:${globalTeamSettings[idx].color}22; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`).join('');
+                if(names === '') names = '<span style="color:#6c7d93; font-size:12px; pointer-events:none;">（空き）</span>';
+                
+                html += `
+                <div class="team-box" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, ${idx})" style="border-color: ${globalTeamSettings[idx].color}66; background: rgba(0,0,0,0.2); min-height: 80px; transition: 0.2s;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; pointer-events:auto; flex-wrap:wrap; gap:5px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="color:#a0aec0; font-size: 15px; font-weight:bold;">${String.fromCharCode(65 + idx)}</span>
+                            <input type="color" value="${globalTeamSettings[idx].color}" onchange="updateTeamColor(${idx}, this.value)" style="width:24px; height:24px; padding:0; border:none; border-radius:12px; cursor:pointer;" title="自由色設定">
+                            <select onchange="updateTeamColor(${idx}, this.value)" style="font-size: 11px; padding: 2px; max-width: 90px; background: #1e2638; border: 1px solid #3b486b; color: #fff; border-radius: 4px; outline: none;">
+                                <option value="${globalTeamSettings[idx].color}">定番色...</option>
+                                ${colorOptionsHTML}
+                            </select>
+                            <input type="text" value="${globalTeamSettings[idx].name}" onchange="updateTeamName(${idx}, this.value)" style="background:transparent; border:1px solid #3b486b; color:#fff; font-size:14px; padding:2px 6px; border-radius:4px; width:120px;" placeholder="チーム名">
+                        </div>
+                        <button onclick="emptyTeam(${idx})" style="background:transparent; border:1px solid #ff4d6d; color:#ff4d6d; font-size:11px; padding:2px 6px; border-radius:4px;" title="メンバーをプールに戻す">🔄 戻す</button>
+                    </div>
+                    <div style="margin-top:10px; pointer-events:auto;">${names}</div>
+                    <div style="font-size:12px; margin-top:12px; padding: 6px; background: rgba(0,0,0,0.3); border-radius:4px; display:flex; justify-content:space-around;">
+                        <span style="color:#ffbe0b;">戦力(μ): <b>${teamStats[idx].sumMu.toFixed(1)}</b></span>
+                        <span style="color:#ff4d6d;">攻撃(F): <b>${teamStats[idx].sumF}</b></span>
+                    </div>
+                </div>`;
+            });
+            
+            let autoNames = autoPlayers.map(pid => `<span class="selected-tag" draggable="true" ondragstart="dragStart(event, '${pid}')" style="cursor:grab; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`).join('');
+            if(autoNames === '') autoNames = '<span style="color:#6c7d93; font-size:12px; pointer-events:none;">（待機プレイヤーなし）</span>';
+            
+            html += `
+            <div class="team-box" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, -1)" style="border-color: #8b9bb4; background: rgba(255,255,255,0.02); border-style: dashed; min-height: 100px; transition: 0.2s;">
+                <h4 style="pointer-events:none;"><span style="color:#8b9bb4; font-size: 14px;">🤖 自動割り当てプール (${autoPlayers.length}名)</span></h4>
+                <div style="margin-top:10px;">${autoNames}</div>
+            </div>`;
+            
+            resultDiv.innerHTML = html;
+        }
+
+        function updateSelectedCount() { 
+            const count = selectedTeamPlayers.size;
+            const el1 = document.getElementById('selected-count-display');
+            const el2 = document.getElementById('selected-count-modal');
+            if(el1) el1.textContent = count;
+            if(el2) el2.textContent = count;
+        }
+
+        function updateTeamSelectCheckboxes(nodesArr) {
+            const container = document.getElementById('player-checkbox-list');
+            container.innerHTML = '';
+            
+            const activeIds = new Set(nodesArr.map(n => n.id));
+            selectedTeamPlayers.forEach(pid => { if(!activeIds.has(pid)) selectedTeamPlayers.delete(pid); });
+
+            const numTeams = parseInt(numTeamsInput.value) || 4;
+            const frag = document.createDocumentFragment();
+
+            nodesArr.slice().sort((a, b) => {
+                if (a.lastDate !== b.lastDate) return b.lastDate.localeCompare(a.lastDate);
+                if (b.rawGames !== a.rawGames) return b.rawGames - a.rawGames;
+                return a.label.localeCompare(b.label, 'ja');
+            }).forEach(n => {
+                const row = document.createElement('div'); row.className = 'player-row';
+                const label = document.createElement('label'); label.className = 'checkbox-label'; label.title = n.label;
+                const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = n.id; cb.checked = selectedTeamPlayers.has(n.id);
+                
+                cb.addEventListener('change', (e) => {
+                    if(e.target.checked) { selectedTeamPlayers.add(n.id); } 
+                    else { selectedTeamPlayers.delete(n.id); delete fixedTeamAssignments[n.id]; delete aiAssignedTeams[n.id]; }
+                    aiStatus.innerHTML = ""; updateSelectedCount(); renderLivePreview();
+                });
+                
+                label.appendChild(cb);
+                const span = document.createElement('span'); span.innerHTML = globalPlayerHtmlNames[n.id] || n.label; label.appendChild(span);
+                const sel = document.createElement('select'); sel.className = 'fixed-select'; sel.innerHTML = '<option value="-1">自動配置</option>';
+                for(let t=0; t<numTeams; t++) {
+                    const opt = document.createElement('option'); opt.value = t; opt.textContent = `チーム${String.fromCharCode(65 + t)}`; sel.appendChild(opt);
+                }
+                
+                const currentT = fixedTeamAssignments[n.id] ?? aiAssignedTeams[n.id] ?? -1;
+                sel.value = currentT;
+
+                sel.addEventListener('change', (e) => {
+                    const val = parseInt(e.target.value);
+                    if(val >= 0) { fixedTeamAssignments[n.id] = val; cb.checked = true; selectedTeamPlayers.add(n.id); } 
+                    else { delete fixedTeamAssignments[n.id]; }
+                    delete aiAssignedTeams[n.id]; aiStatus.innerHTML = ""; updateSelectedCount(); renderLivePreview();
+                });
+
+                row.appendChild(label); row.appendChild(sel); frag.appendChild(row);
+            });
+            container.appendChild(frag);
+            updateSelectedCount();
+        }
+
+        document.getElementById('btn-check-all').addEventListener('click', () => {
+            document.querySelectorAll('#player-checkbox-list input[type="checkbox"]').forEach(cb => { cb.checked = true; selectedTeamPlayers.add(cb.value); });
+            updateSelectedCount(); renderLivePreview();
+        });
+
+        document.getElementById('btn-uncheck-all').addEventListener('click', () => {
+            document.querySelectorAll('#player-checkbox-list input[type="checkbox"]').forEach(cb => cb.checked = false);
+            selectedTeamPlayers.clear(); fixedTeamAssignments = {}; aiAssignedTeams = {};
+            document.querySelectorAll('.fixed-select').forEach(sel => sel.value = "-1");
+            updateSelectedCount(); renderLivePreview(); aiStatus.innerHTML = "";
+        });
+
+        document.getElementById('btn-reset-fixed').addEventListener('click', () => {
+            fixedTeamAssignments = {}; aiAssignedTeams = {}; 
+            document.querySelectorAll('.fixed-select').forEach(sel => sel.value = "-1");
+            updateSelectedCount(); renderLivePreview(); aiStatus.innerHTML = "固定設定をリセットしました";
+        });
+
+        // ==========================================
+        // 高速化された チーム編成 AI (Simulated Annealing)
+        // ==========================================
+        btnGenerateTeams.addEventListener('click', () => {
+            if (selectedTeamPlayers.size === 0) return alert("プレイヤーを選択してください");
+            const numTeams = parseInt(numTeamsInput.value);
+            if (isNaN(numTeams) || numTeams < 2) return alert("2以上のチーム数を指定してください");
+            const activePlayerIds = Array.from(selectedTeamPlayers);
+            if (activePlayerIds.length < numTeams) return alert("参加人数がチーム数より少ないです");
+
+            btnGenerateTeams.textContent = "⌛ AI最適化中..."; btnGenerateTeams.disabled = true; aiStatus.innerHTML = "計算中...";
+            aiAssignedTeams = {}; 
+
+            setTimeout(() => {
+                const rollingWindow = parseInt(rollingSelect.value);
+                const rollingTeammates = {};
+                activePlayerIds.forEach(pid => { rollingTeammates[pid] = {}; });
+                const matchTeamsRolling = {};
+
+                activePlayerIds.forEach(pid => {
+                    let games = playerRawGames[pid] || [];
+                    if (rollingWindow > 0 && games.length > rollingWindow) games = games.slice(-rollingWindow);
+                    games.forEach(g => {
+                        const key = `${g.eventId||'ev'}_${g.matchId||'m'}_${g.myTeam||'tm'}`;
+                        if (!matchTeamsRolling[key]) matchTeamsRolling[key] = new Set();
+                        matchTeamsRolling[key].add(pid);
+                    });
+                });
+
+                Object.values(matchTeamsRolling).forEach(pSet => {
+                    const pids = Array.from(pSet);
+                    pids.forEach((p1, i) => {
+                        for(let j=i+1; j<pids.length; j++) {
+                            let p2 = pids[j];
+                            rollingTeammates[p1][p2] = (rollingTeammates[p1][p2] || 0) + 1;
+                            if(!rollingTeammates[p2]) rollingTeammates[p2] = {};
+                            rollingTeammates[p2][p1] = (rollingTeammates[p2][p1] || 0) + 1;
+                        }
+                    });
+                });
+
+                // キャッシュ用プレイヤー情報
+                const playerStatsCache = {};
+                let globalMuSum = 0; let globalFlagSum = 0;
+                activePlayerIds.forEach(pid => {
+                    const st = getPlayerRollingStats(pid, rollingWindow);
+                    playerStatsCache[pid] = st;
+                    globalMuSum += st.mu; globalFlagSum += st.flags;
+                });
+
+                let targetTeamMuSum = globalMuSum / numTeams; 
+                let targetTeamFlagSum = globalFlagSum / numTeams;
+
+                let teams = Array.from({length: numTeams}, () => []);
+                let unassignedPlayerIds = [];
+
+                activePlayerIds.forEach(pid => {
+                    if (fixedTeamAssignments[pid] !== undefined && fixedTeamAssignments[pid] >= 0 && fixedTeamAssignments[pid] < numTeams) {
+                        teams[fixedTeamAssignments[pid]].push(pid);
+                    } else { unassignedPlayerIds.push(pid); }
+                });
+
+                unassignedPlayerIds.sort(() => Math.random() - 0.5);
+                unassignedPlayerIds.forEach(pid => {
+                    let minSizeIdx = 0;
+                    for(let t=1; t<numTeams; t++) { if(teams[t].length < teams[minSizeIdx].length) minSizeIdx = t; }
+                    teams[minSizeIdx].push(pid);
+                });
+
+                const wManneri = parseInt(weightManneriInput.value) / 100.0;
+                const wSkill = parseInt(weightSkillInput.value) / 100.0;
+                const wFlag = parseInt(weightFlagInput.value) / 100.0;
+
+                function calcTeamManneriPenalty(team) {
+                    let penalty = 0;
+                    for(let i=0; i<team.length; i++) {
+                        const p1Map = rollingTeammates[team[i]];
+                        if (!p1Map) continue;
+                        for(let j=i+1; j<team.length; j++) {
+                            if (p1Map[team[j]]) penalty += p1Map[team[j]];
+                        }
+                    }
+                    return penalty;
+                }
+
+                function calcTeamSkillPenalty(team) {
+                    let teamMuSum = 0; team.forEach(pid => teamMuSum += playerStatsCache[pid].mu); 
+                    return Math.abs(teamMuSum - targetTeamMuSum);
+                }
+
+                function calcTeamFlagPenalty(team) {
+                    let teamFlagSum = 0; team.forEach(pid => teamFlagSum += playerStatsCache[pid].flags); 
+                    return Math.abs(teamFlagSum - targetTeamFlagSum);
+                }
+
+                let ITERATIONS = 100000;
+                for(let iter=0; iter<ITERATIONS; iter++) {
+                    let t1Idx = Math.floor(Math.random() * numTeams); 
+                    let t2Idx = Math.floor(Math.random() * numTeams);
+                    if(t1Idx === t2Idx) continue;
+                    let t1 = teams[t1Idx]; let t2 = teams[t2Idx];
+                    let swappable1 = t1.filter(pid => fixedTeamAssignments[pid] === undefined || fixedTeamAssignments[pid] < 0);
+                    let swappable2 = t2.filter(pid => fixedTeamAssignments[pid] === undefined || fixedTeamAssignments[pid] < 0);
+                    if(swappable1.length === 0 || swappable2.length === 0) continue;
+
+                    let p1 = swappable1[Math.floor(Math.random() * swappable1.length)]; 
+                    let p2 = swappable2[Math.floor(Math.random() * swappable2.length)];
+                    let p1Idx = t1.indexOf(p1); let p2Idx = t2.indexOf(p2);
+
+                    let costBefore = (calcTeamManneriPenalty(t1) + calcTeamManneriPenalty(t2)) * wManneri 
+                                   + (calcTeamSkillPenalty(t1) + calcTeamSkillPenalty(t2)) * 3.0 * wSkill 
+                                   + (calcTeamFlagPenalty(t1) + calcTeamFlagPenalty(t2)) * 3.0 * wFlag;
+                    
+                    t1[p1Idx] = p2; t2[p2Idx] = p1;
+                    
+                    let costAfter = (calcTeamManneriPenalty(t1) + calcTeamManneriPenalty(t2)) * wManneri 
+                                  + (calcTeamSkillPenalty(t1) + calcTeamSkillPenalty(t2)) * 3.0 * wSkill 
+                                  + (calcTeamFlagPenalty(t1) + calcTeamFlagPenalty(t2)) * 3.0 * wFlag;
+
+                    let diff = costAfter - costBefore;
+                    if (diff > 1e-5 || (Math.abs(diff) <= 1e-5 && Math.random() >= 0.05)) { 
+                        t1[p1Idx] = p1; t2[p2Idx] = p2; 
+                    }
+                }
+
+                teams.forEach((tm, idx) => {
+                    tm.forEach(pid => { if (fixedTeamAssignments[pid] === undefined) { aiAssignedTeams[pid] = idx; } });
+                });
+
+                let totalManneri = 0; teams.forEach(tm => totalManneri += calcTeamManneriPenalty(tm));
+                let rollLabel = rollingWindow > 0 ? `直近${rollingWindow}G` : "全期間";
+                aiStatus.innerHTML = `✅ AI最適化完了 (集計: ${rollLabel} / マンネリ指数: ${totalManneri})`;
+
+                renderLivePreview();
+                btnGenerateTeams.textContent = "✨ 最適なチーム編成を生成"; btnGenerateTeams.disabled = false;
+            }, 50);
+        });
+    </script>
+</body>
+</html>

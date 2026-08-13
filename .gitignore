@@ -1,0 +1,6 @@
+# Ignore generated zip package
+FLAGHUNT_Nexus_AppPackage.zip
+
+# Ignore temporary files
+*.tmp
+.DS_Store
