@@ -1,8 +1,17 @@
 {
   "navigationFallback": {
-    "rewrite": "/index.html"
+    "rewrite": "/index.html",
+    "exclude": ["/auth-popup.html", "/msal-browser.min.js"]
   },
   "routes": [
+    {
+      "route": "/auth-popup.html",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/msal-browser.min.js",
+      "allowedRoles": ["anonymous"]
+    },
     {
       "route": "/.auth/*",
       "allowedRoles": ["anonymous"]

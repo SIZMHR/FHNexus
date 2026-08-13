@@ -455,10 +455,10 @@
             auth: {
                 clientId: '070cbac7-3990-49af-960c-26fb77a48cfd',
                 authority: 'https://login.microsoftonline.com/17a5182f-d27f-4a41-9015-3a1e248cb0fd',
-                redirectUri: window.location.origin
+                redirectUri: window.location.origin + '/auth-popup.html'
             },
             cache: {
-                cacheLocation: 'memory', // ブラウザのトラッキング防止(Storageアクセスブロック)を回避するためメモリを使用
+                cacheLocation: 'sessionStorage',
                 storeAuthStateInCookie: false
             }
         };
@@ -468,33 +468,18 @@
         const SP_FOLDER  = '/General/戦績データ（年間戦績）/json';
 
         let msalInstance = null;
-        let msalRedirectPromise = null;
-
-        // ページロード時に即座に MSAL を初期化し、リダイレクト情報をURLから拾う
-        if (typeof msal !== 'undefined') {
-            msalInstance = new msal.PublicClientApplication(MSAL_CONFIG);
-            msalRedirectPromise = msalInstance.initialize().then(() => {
-                return msalInstance.handleRedirectPromise();
-            }).then(redirectResponse => {
-                if (redirectResponse && redirectResponse.account) {
-                    msalInstance.setActiveAccount(redirectResponse.account);
-                    console.log("MSAL active account set after redirect:", redirectResponse.account.username);
-                } else {
-                    const accounts = msalInstance.getAllAccounts();
-                    if (accounts.length > 0) {
-                        msalInstance.setActiveAccount(accounts[0]);
-                    }
-                }
-                return msalInstance;
-            }).catch(err => {
-                console.error("MSAL Redirect Error:", err);
-                return msalInstance;
-            });
-        }
 
         async function initMsal() {
-            if (!msalRedirectPromise) throw new Error('MSALライブラリの読込に失敗しました');
-            return await msalRedirectPromise;
+            if (msalInstance) return msalInstance;
+            if (typeof msal === 'undefined') throw new Error('MSALライブラリの読込に失敗しました');
+            msalInstance = new msal.PublicClientApplication(MSAL_CONFIG);
+            await msalInstance.initialize();
+            // 既存のアカウントがあればセット
+            const accounts = msalInstance.getAllAccounts();
+            if (accounts.length > 0) {
+                msalInstance.setActiveAccount(accounts[0]);
+            }
+            return msalInstance;
         }
 
         async function getGraphToken() {
@@ -515,12 +500,13 @@
                 }
             }
 
-            // 2. 上記で取れない場合はポップアップ方式で認証
-            // (COOP ヘッダーとメモリキャッシュにより、アプリ2重起動やストレージブロックを回避します)
-            console.log("Initiating MSAL loginPopup...");
+            // 2. ポップアップ方式で認証（専用コールバックページを使用）
+            // auth-popup.html は SWA 認証不要（anonymous）なので、ポップアップ内にアプリ全体が読み込まれません
+            console.log("Initiating MSAL loginPopup with dedicated callback page...");
             const popupRes = await client.loginPopup({
                 scopes: GRAPH_SCOPES,
-                loginHint: userEmail
+                loginHint: userEmail,
+                redirectUri: window.location.origin + '/auth-popup.html'
             });
             if (popupRes && popupRes.account) {
                 client.setActiveAccount(popupRes.account);
