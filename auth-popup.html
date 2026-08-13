@@ -1,12 +1,14 @@
 <!DOCTYPE html>
 <html>
-<head><title>認証中...</title></head>
+<head>
+<meta charset="utf-8">
+<title>認証中...</title>
+</head>
 <body>
 <p style="font-family:sans-serif;text-align:center;margin-top:40vh;color:#666;">認証処理中です。このウィンドウは自動的に閉じます...</p>
 <script src="msal-browser.min.js"></script>
 <script>
-    // このページはMSALのポップアップ認証コールバック専用です。
-    // Microsoft ログインからリダイレクトされた後、認証結果を親ウィンドウに渡して自動的に閉じます。
+    // このページはMSALのポップアップ/リダイレクト認証コールバック専用です。
     const msalConfig = {
         auth: {
             clientId: '070cbac7-3990-49af-960c-26fb77a48cfd',
@@ -22,10 +24,18 @@
         return msalApp.handleRedirectPromise();
     }).then(response => {
         if (response) {
-            console.log("Auth popup: redirect handled successfully");
+            console.log("Auth callback: redirect handled successfully");
+        }
+        // ポップアップではなくメインウィンドウで開かれた場合（モバイル等）は、アプリ本体にリダイレクト
+        if (!window.opener) {
+            window.location.replace(window.location.origin + '/');
         }
     }).catch(err => {
-        console.error("Auth popup error:", err);
+        console.error("Auth callback error:", err);
+        // エラー時もアプリ本体にリダイレクト
+        if (!window.opener) {
+            window.location.replace(window.location.origin + '/');
+        }
     });
 </script>
 </body>

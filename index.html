@@ -500,18 +500,34 @@
                 }
             }
 
-            // 2. ポップアップ方式で認証（専用コールバックページを使用）
-            // auth-popup.html は SWA 認証不要（anonymous）なので、ポップアップ内にアプリ全体が読み込まれません
-            console.log("Initiating MSAL loginPopup with dedicated callback page...");
-            const popupRes = await client.loginPopup({
-                scopes: GRAPH_SCOPES,
-                loginHint: userEmail,
-                redirectUri: window.location.origin + '/auth-popup.html'
-            });
-            if (popupRes && popupRes.account) {
-                client.setActiveAccount(popupRes.account);
+            // 2. モバイルではリダイレクト方式、デスクトップではポップアップ方式で認証
+            const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+            const authRedirectUri = window.location.origin + '/auth-popup.html';
+
+            if (isMobile) {
+                // モバイル: ポップアップが使えないためリダイレクト方式を使用
+                console.log("Mobile detected: using loginRedirect...");
+                sessionStorage.setItem('msalAutoLoadSP', 'true');
+                await client.loginRedirect({
+                    scopes: GRAPH_SCOPES,
+                    loginHint: userEmail,
+                    redirectUri: authRedirectUri
+                });
+                // リダイレクトするためここには到達しない
+                return null;
+            } else {
+                // デスクトップ: ポップアップ方式（専用コールバックページを使用）
+                console.log("Initiating MSAL loginPopup with dedicated callback page...");
+                const popupRes = await client.loginPopup({
+                    scopes: GRAPH_SCOPES,
+                    loginHint: userEmail,
+                    redirectUri: authRedirectUri
+                });
+                if (popupRes && popupRes.account) {
+                    client.setActiveAccount(popupRes.account);
+                }
+                return popupRes.accessToken;
             }
-            return popupRes.accessToken;
         }
 
         async function loadLatestJsonFromSharePoint() {
@@ -630,13 +646,31 @@
         // ボタンイベント登録
         document.getElementById('btn-sp-load').addEventListener('click', loadLatestJsonFromSharePoint);
 
-        // 認証済みの場合はページロード時に MSAL 初期化
+        // 認証済みの場合はページロード時に MSAL 初期化（モバイルのリダイレクト復帰にも対応）
         window.addEventListener('load', async () => {
             setTimeout(async () => {
                 if (typeof msal !== 'undefined') {
                     try {
                         const client = await initMsal();
                         const badge = document.getElementById('sp-load-badge');
+
+                        // モバイルのリダイレクト認証から戻ってきた場合の処理
+                        const redirectResult = await client.handleRedirectPromise();
+                        if (redirectResult && redirectResult.account) {
+                            client.setActiveAccount(redirectResult.account);
+                            console.log("MSAL redirect return: account set:", redirectResult.account.username);
+                        }
+
+                        // リダイレクト前に設定したフラグがあれば自動的にSharePoint読み込みを再開
+                        if (sessionStorage.getItem('msalAutoLoadSP') === 'true') {
+                            sessionStorage.removeItem('msalAutoLoadSP');
+                            if (client.getActiveAccount()) {
+                                console.log("Auto-resuming SharePoint load after mobile redirect...");
+                                if (badge) { badge.style.color = '#00d2ff'; badge.textContent = '認証完了、読み込みを再開します...'; }
+                                loadLatestJsonFromSharePoint();
+                                return;
+                            }
+                        }
                         
                         if (client && client.getActiveAccount()) {
                             if (badge) { badge.style.color = '#00d2ff'; badge.textContent = 'SharePoint 接続可能'; }
