@@ -1283,6 +1283,33 @@
             const blob = new Blob([bom, csvContent], { type: 'text/csv' });
             const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url;
             a.download = `FLAGHUNT_Nexus_Teams_${new Date().getTime()}.csv`; a.click(); URL.revokeObjectURL(url);
+
+            const successFeedback = () => {
+                const originalText = btnExportCsv.innerHTML;
+                btnExportCsv.innerHTML = '✅ クリップボードにコピーしました';
+                setTimeout(() => { btnExportCsv.innerHTML = originalText; }, 3000);
+            };
+
+            // クリップボードにもコピー (Teamsのiframe内などでのダウンロード制限対策)
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(csvContent).then(successFeedback).catch(err => console.log('Clipboard copy failed:', err));
+            } else {
+                // Clipboard API非対応時のフォールバック
+                const textArea = document.createElement("textarea");
+                textArea.value = csvContent;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-999999px";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    successFeedback();
+                } catch (err) {
+                    console.log('Fallback clipboard copy failed:', err);
+                }
+                document.body.removeChild(textArea);
+            }
         });
 
         function renderLivePreview() {
