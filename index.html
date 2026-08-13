@@ -474,22 +474,53 @@
             if (typeof msal === 'undefined') throw new Error('MSALライブラリの読込に失敗しました');
             msalInstance = new msal.PublicClientApplication(MSAL_CONFIG);
             await msalInstance.initialize();
-            // リダイレクト後のレスポンス処理
-            await msalInstance.handleRedirectPromise();
+            
+            // ポップアップウィンドウでリダイレクトされた場合の処理
+            const response = await msalInstance.handleRedirectPromise();
+            if (response && window.opener && window.opener !== window) {
+                // ポップアップ内の場合は処理完了後に即座に閉じる
+                window.close();
+                return null;
+            }
             return msalInstance;
+        }
+
+        // ページロード時に早期初期化（ポップアップクローズ用）
+        if (typeof msal !== 'undefined') {
+            initMsal().catch(console.error);
         }
 
         async function getGraphToken() {
             const client = await initMsal();
             const accounts = client.getAllAccounts();
-            const tokenReq = { scopes: GRAPH_SCOPES, account: accounts.length > 0 ? accounts[0] : undefined };
+            
+            // Azure Static Web Apps のログインユーザー情報をヒントとして使用
+            const userEmail = currentUser && currentUser.userDetails ? currentUser.userDetails : undefined;
+            
+            const tokenReq = { 
+                scopes: GRAPH_SCOPES, 
+                account: accounts.length > 0 ? accounts[0] : undefined,
+                loginHint: userEmail
+            };
+            
             try {
+                // まずサイレントで取得を試みる
                 const res = await client.acquireTokenSilent(tokenReq);
                 return res.accessToken;
-            } catch {
-                // サイレント取得失敗 → ポップアップ
-                const res = await client.acquireTokenPopup(tokenReq);
-                return res.accessToken;
+            } catch (silentError) {
+                console.log("Silent token fetch failed, opening popup:", silentError);
+                // サイレント失敗時のみポップアップ
+                try {
+                    const res = await client.acquireTokenPopup(tokenReq);
+                    return res.accessToken;
+                } catch (popupError) {
+                    // ポップアップもブロックされる場合 ssoSilent を試す
+                    if (userEmail) {
+                        const ssoRes = await client.ssoSilent({ scopes: GRAPH_SCOPES, loginHint: userEmail });
+                        return ssoRes.accessToken;
+                    }
+                    throw popupError;
+                }
             }
         }
 
