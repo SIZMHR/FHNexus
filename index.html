@@ -475,58 +475,62 @@
             msalInstance = new msal.PublicClientApplication(MSAL_CONFIG);
             await msalInstance.initialize();
             
-            // ポップアップウィンドウでリダイレクトされた場合の処理
-            const response = await msalInstance.handleRedirectPromise();
-            if (response && window.opener && window.opener !== window) {
-                // ポップアップ内の場合は処理完了後に即座に閉じる
-                window.close();
-                return null;
+            // リダイレクトからの復帰処理
+            const redirectResponse = await msalInstance.handleRedirectPromise();
+            if (redirectResponse && redirectResponse.account) {
+                msalInstance.setActiveAccount(redirectResponse.account);
+                console.log("MSAL active account set after redirect:", redirectResponse.account.username);
+            } else {
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length > 0) {
+                    msalInstance.setActiveAccount(accounts[0]);
+                }
             }
             return msalInstance;
         }
 
-        // ページロード時に早期初期化（ポップアップクローズ用）
-        if (typeof msal !== 'undefined') {
-            initMsal().catch(console.error);
-        }
-
         async function getGraphToken() {
             const client = await initMsal();
-            let account = client.getActiveAccount() || client.getAllAccounts()[0];
+            let account = client.getActiveAccount();
             const userEmail = currentUser && currentUser.userDetails ? currentUser.userDetails : undefined;
 
-            // アカウント情報がない場合は loginPopup でサインインを完了させる
-            if (!account) {
-                console.log("No active MSAL account found. Initiating loginPopup...");
+            // 1. 既存のアカウント情報でサイレント取得を試みる
+            if (account) {
                 try {
-                    const loginRes = await client.loginPopup({
+                    const res = await client.acquireTokenSilent({
                         scopes: GRAPH_SCOPES,
-                        loginHint: userEmail
+                        account: account
                     });
-                    account = loginRes.account;
-                    client.setActiveAccount(account);
-                    return loginRes.accessToken;
-                } catch (loginErr) {
-                    console.error("loginPopup error:", loginErr);
-                    throw new Error("Microsoft サインインに失敗しました（ポップアップが許可されているか確認してください）");
+                    return res.accessToken;
+                } catch (silentErr) {
+                    console.log("acquireTokenSilent failed:", silentErr);
                 }
             }
 
-            // アカウントが存在する場合はサイレントでトークンを取得
-            try {
-                const res = await client.acquireTokenSilent({
-                    scopes: GRAPH_SCOPES,
-                    account: account
-                });
-                return res.accessToken;
-            } catch (silentErr) {
-                console.log("acquireTokenSilent failed, trying acquireTokenPopup:", silentErr);
-                const res = await client.acquireTokenPopup({
-                    scopes: GRAPH_SCOPES,
-                    account: account
-                });
-                return res.accessToken;
+            // 2. SSO (ssoSilent) でポップアップも画面遷移もなしにトークン取得を試みる
+            if (userEmail) {
+                try {
+                    console.log("Attempting ssoSilent for:", userEmail);
+                    const ssoRes = await client.ssoSilent({
+                        scopes: GRAPH_SCOPES,
+                        loginHint: userEmail
+                    });
+                    if (ssoRes && ssoRes.account) {
+                        client.setActiveAccount(ssoRes.account);
+                    }
+                    return ssoRes.accessToken;
+                } catch (ssoErr) {
+                    console.log("ssoSilent failed:", ssoErr);
+                }
             }
+
+            // 3. 上記で取れない場合はリダイレクト方式で認証（ポップアップを使わないためCOOPエラーもアプリ2重起動も発生しません）
+            console.log("Redirecting for MSAL auth...");
+            await client.loginRedirect({
+                scopes: GRAPH_SCOPES,
+                loginHint: userEmail
+            });
+            throw new Error("Microsoft 認証画面へ移動します...");
         }
 
         async function loadLatestJsonFromSharePoint() {
@@ -613,15 +617,23 @@
         // ボタンイベント登録
         document.getElementById('btn-sp-load').addEventListener('click', loadLatestJsonFromSharePoint);
 
-        // 認証済みの場合はページロード時に自動読込
+        // 認証済みの場合はページロード時に MSAL 初期化
         window.addEventListener('load', async () => {
-            // checkAzureAuthでユーザー情報取得後に実行されるよう500ms待機
             setTimeout(async () => {
-                if (currentUser) {
-                    const badge = document.getElementById('sp-load-badge');
-                    if (badge) { badge.style.color = '#8b9bb4'; badge.textContent = '認証済み - 自動読込にはボタンを押してください'; }
+                if (typeof msal !== 'undefined') {
+                    try {
+                        const client = await initMsal();
+                        const badge = document.getElementById('sp-load-badge');
+                        if (client && client.getActiveAccount()) {
+                            if (badge) { badge.style.color = '#00d2ff'; badge.textContent = 'SharePoint 接続可能'; }
+                        } else if (currentUser) {
+                            if (badge) { badge.style.color = '#8b9bb4'; badge.textContent = 'ボタンを押して SharePoint 読込'; }
+                        }
+                    } catch (e) {
+                        console.log("MSAL load init notice:", e);
+                    }
                 }
-            }, 1500);
+            }, 1000);
         });
 
         function applyTeamsTheme(theme) {
