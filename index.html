@@ -548,20 +548,22 @@
                 let usedPath = '';
                 for (const path of candidatePaths) {
                     const encodedPath = path.split('/').map(s => encodeURIComponent(s)).join('/');
-                    const listUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:${encodedPath}:/children` +
-                        `?$orderby=lastModifiedDateTime desc` +
-                        `&$select=name,lastModifiedDateTime,@microsoft.graph.downloadUrl` +
-                        `&$top=50`;
+                    const listUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:${encodedPath}:/children?$orderby=lastModifiedDateTime%20desc&$top=50`;
                     console.log("Trying path:", path, "→", listUrl);
-                    const res = await fetch(listUrl, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    if (res.ok) {
-                        listRes = res;
-                        usedPath = path;
-                        break;
-                    } else {
-                        console.log(`Path ${path} returned ${res.status}`);
+                    try {
+                        const res = await fetch(listUrl, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (res.ok) {
+                            listRes = res;
+                            usedPath = path;
+                            break;
+                        } else {
+                            const errBody = await res.text();
+                            console.log(`Path ${path} returned ${res.status}:`, errBody.substring(0, 300));
+                        }
+                    } catch (fetchErr) {
+                        console.log(`Path ${path} fetch error:`, fetchErr.message);
                     }
                 }
 
