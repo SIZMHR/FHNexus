@@ -524,7 +524,20 @@
 
                 const token = await getGraphToken();
 
-                // 候補フォルダパス（Shared Documents の有無両方に対応）
+                // Step 1: サイトIDを取得
+                const siteUrl = `https://graph.microsoft.com/v1.0/sites/flaghunt.sharepoint.com:/sites/trainingday`;
+                const siteRes = await fetch(siteUrl, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!siteRes.ok) {
+                    const errBody = await siteRes.text();
+                    throw new Error(`サイト情報の取得に失敗しました (${siteRes.status}): ${errBody}`);
+                }
+                const siteData = await siteRes.json();
+                const siteId = siteData.id;
+                console.log("SharePoint Site ID:", siteId);
+
+                // Step 2: 候補フォルダパスでファイル一覧を取得
                 const candidatePaths = [
                     '/General/戦績データ（年間戦績）/json',
                     '/Shared Documents/General/戦績データ（年間戦績）/json',
@@ -534,10 +547,12 @@
                 let listRes = null;
                 let usedPath = '';
                 for (const path of candidatePaths) {
-                    const listUrl = `https://graph.microsoft.com/v1.0/sites/${SP_SITE}/drive/root:${path}:/children` +
+                    const encodedPath = path.split('/').map(s => encodeURIComponent(s)).join('/');
+                    const listUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:${encodedPath}:/children` +
                         `?$orderby=lastModifiedDateTime desc` +
                         `&$select=name,lastModifiedDateTime,@microsoft.graph.downloadUrl` +
                         `&$top=50`;
+                    console.log("Trying path:", path, "→", listUrl);
                     const res = await fetch(listUrl, {
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
@@ -545,6 +560,8 @@
                         listRes = res;
                         usedPath = path;
                         break;
+                    } else {
+                        console.log(`Path ${path} returned ${res.status}`);
                     }
                 }
 
