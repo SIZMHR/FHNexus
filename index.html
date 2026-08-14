@@ -132,12 +132,12 @@
     <header>
         <h1>🚩 FLAGHUNT Nexus <span class="header-badge" id="env-badge">Standalone / Teams</span></h1>
         <div class="header-controls">
-            <div class="control-group" style="border-color: #00d2ff;">
-                <label>📁 JSON読込:</label>
-                <input type="file" id="file-input" accept=".json" style="max-width: 180px;">
-            </div>
             <button id="btn-sp-load" title="SharePoint の json フォルダから最新ファイルを自動読込" style="background:#0078d4; color:#fff; padding:5px 12px; font-size:12px; border-radius:6px; white-space:nowrap;">📂 SharePoint 自動読込</button>
             <span id="sp-load-badge" style="font-size:11px; color:#8b9bb4; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+            <details style="font-size:11px; color:#8b9bb4; cursor:pointer;">
+                <summary style="user-select:none;">📁 ローカル JSON 読込</summary>
+                <input type="file" id="file-input" accept=".json" style="max-width: 180px; margin-top:4px; font-size:11px;">
+            </details>
         </div>
     </header>
 
@@ -219,11 +219,19 @@
                     <div style="margin-bottom: 12px; display: flex; justify-content: space-around; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 6px; flex-wrap: wrap; gap: 10px;">
                         <div style="display: flex; align-items: center; gap: 6px;">
                             <span style="font-size: 13px; font-weight: bold; color: #8b9bb4;">チーム数:</span>
-                            <input type="number" id="num-teams-input" min="2" max="20" value="4" style="width: 50px; text-align: center; padding: 4px;">
+                            <div style="display:flex; align-items:center; gap:0;">
+                                <button class="stepper-btn" onclick="stepInput('num-teams-input',-1,2,20)" style="width:32px;height:32px;font-size:18px;border-radius:6px 0 0 6px;border:1px solid #3a4a6b;background:#1e293b;color:#e0e7ef;cursor:pointer;font-weight:bold;">−</button>
+                                <input type="number" id="num-teams-input" min="2" max="20" value="4" readonly style="width:36px;text-align:center;padding:4px 0;border-top:1px solid #3a4a6b;border-bottom:1px solid #3a4a6b;border-left:none;border-right:none;background:#1e293b;color:#e0e7ef;font-size:14px;font-weight:bold;-moz-appearance:textfield;">
+                                <button class="stepper-btn" onclick="stepInput('num-teams-input',1,2,20)" style="width:32px;height:32px;font-size:18px;border-radius:0 6px 6px 0;border:1px solid #3a4a6b;background:#1e293b;color:#e0e7ef;cursor:pointer;font-weight:bold;">+</button>
+                            </div>
                         </div>
                         <div style="display: flex; align-items: center; gap: 6px;">
                             <span style="font-size: 13px; font-weight: bold; color: #8b9bb4;">リーグ数:</span>
-                            <input type="number" id="num-leagues-input" min="1" max="10" value="1" style="width: 50px; text-align: center; padding: 4px;">
+                            <div style="display:flex; align-items:center; gap:0;">
+                                <button class="stepper-btn" onclick="stepInput('num-leagues-input',-1,1,10)" style="width:32px;height:32px;font-size:18px;border-radius:6px 0 0 6px;border:1px solid #3a4a6b;background:#1e293b;color:#e0e7ef;cursor:pointer;font-weight:bold;">−</button>
+                                <input type="number" id="num-leagues-input" min="1" max="10" value="1" readonly style="width:36px;text-align:center;padding:4px 0;border-top:1px solid #3a4a6b;border-bottom:1px solid #3a4a6b;border-left:none;border-right:none;background:#1e293b;color:#e0e7ef;font-size:14px;font-weight:bold;-moz-appearance:textfield;">
+                                <button class="stepper-btn" onclick="stepInput('num-leagues-input',1,1,10)" style="width:32px;height:32px;font-size:18px;border-radius:0 6px 6px 0;border:1px solid #3a4a6b;background:#1e293b;color:#e0e7ef;cursor:pointer;font-weight:bold;">+</button>
+                            </div>
                         </div>
                     </div>
 
@@ -646,42 +654,74 @@
         // ボタンイベント登録
         document.getElementById('btn-sp-load').addEventListener('click', loadLatestJsonFromSharePoint);
 
-        // 認証済みの場合はページロード時に MSAL 初期化（モバイルのリダイレクト復帰にも対応）
-        window.addEventListener('load', async () => {
-            setTimeout(async () => {
-                if (typeof msal !== 'undefined') {
-                    try {
-                        const client = await initMsal();
-                        const badge = document.getElementById('sp-load-badge');
+        // ステッパーボタンのヘルパー関数
+        function stepInput(inputId, delta, min, max) {
+            const input = document.getElementById(inputId);
+            let val = parseInt(input.value) || min;
+            val = Math.max(min, Math.min(max, val + delta));
+            input.value = val;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
 
-                        // モバイルのリダイレクト認証から戻ってきた場合の処理
-                        const redirectResult = await client.handleRedirectPromise();
-                        if (redirectResult && redirectResult.account) {
-                            client.setActiveAccount(redirectResult.account);
-                            console.log("MSAL redirect return: account set:", redirectResult.account.username);
-                        }
+        // 認証済みの場合はページロード時に MSAL 初期化（カウントダウン付き + モバイルのリダイレクト復帰にも対応）
+        window.addEventListener('load', () => {
+            const badge = document.getElementById('sp-load-badge');
+            const btnSP = document.getElementById('btn-sp-load');
+            if (typeof msal === 'undefined') return;
 
-                        // リダイレクト前に設定したフラグがあれば自動的にSharePoint読み込みを再開
-                        if (sessionStorage.getItem('msalAutoLoadSP') === 'true') {
-                            sessionStorage.removeItem('msalAutoLoadSP');
-                            if (client.getActiveAccount()) {
-                                console.log("Auto-resuming SharePoint load after mobile redirect...");
-                                if (badge) { badge.style.color = '#00d2ff'; badge.textContent = '認証完了、読み込みを再開します...'; }
-                                loadLatestJsonFromSharePoint();
-                                return;
-                            }
-                        }
-                        
-                        if (client && client.getActiveAccount()) {
-                            if (badge) { badge.style.color = '#00d2ff'; badge.textContent = 'SharePoint 接続可能'; }
-                        } else if (currentUser) {
-                            if (badge) { badge.style.color = '#8b9bb4'; badge.textContent = 'ボタンを押して SharePoint 読込'; }
-                        }
-                    } catch (e) {
-                        console.log("MSAL load init notice:", e);
-                    }
+            // カウントダウン表示（準備完了まで）
+            const INIT_WAIT = 3; // 秒
+            let countdown = INIT_WAIT;
+            btnSP.disabled = true;
+            badge.style.color = '#8b9bb4';
+            badge.textContent = `⏳ 接続準備中... ${countdown}秒`;
+            const countdownTimer = setInterval(() => {
+                countdown--;
+                if (countdown > 0) {
+                    badge.textContent = `⏳ 接続準備中... ${countdown}秒`;
+                } else {
+                    clearInterval(countdownTimer);
                 }
             }, 1000);
+
+            setTimeout(async () => {
+                clearInterval(countdownTimer);
+                try {
+                    const client = await initMsal();
+
+                    // モバイルのリダイレクト認証から戻ってきた場合の処理
+                    const redirectResult = await client.handleRedirectPromise();
+                    if (redirectResult && redirectResult.account) {
+                        client.setActiveAccount(redirectResult.account);
+                        console.log("MSAL redirect return: account set:", redirectResult.account.username);
+                    }
+
+                    // リダイレクト前に設定したフラグがあれば自動的にSharePoint読み込みを再開
+                    if (sessionStorage.getItem('msalAutoLoadSP') === 'true') {
+                        sessionStorage.removeItem('msalAutoLoadSP');
+                        if (client.getActiveAccount()) {
+                            console.log("Auto-resuming SharePoint load after mobile redirect...");
+                            badge.style.color = '#00d2ff'; badge.textContent = '認証完了、読み込みを再開します...';
+                            btnSP.disabled = false;
+                            loadLatestJsonFromSharePoint();
+                            return;
+                        }
+                    }
+
+                    btnSP.disabled = false;
+                    if (client && client.getActiveAccount()) {
+                        badge.style.color = '#00d2ff'; badge.textContent = '✅ SharePoint 接続可能';
+                    } else if (currentUser) {
+                        badge.style.color = '#8b9bb4'; badge.textContent = 'ボタンを押して SharePoint 読込';
+                    } else {
+                        badge.textContent = '';
+                    }
+                } catch (e) {
+                    console.log("MSAL load init notice:", e);
+                    btnSP.disabled = false;
+                    badge.style.color = '#8b9bb4'; badge.textContent = 'ボタンを押して SharePoint 読込';
+                }
+            }, INIT_WAIT * 1000);
         });
 
         function applyTeamsTheme(theme) {
