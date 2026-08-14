@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>🚩 FLAGHUNT Nexus - 分析 ＆ 自動チーム編成</title>
     <!-- Microsoft Teams JS SDK -->
     <script src="https://res.cdn.office.net/teams-js/2.22.0/js/MicrosoftTeams.min.js"></script>
@@ -13,7 +13,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif; }
-        body { background-color: #0d111a; color: #e0e6ed; overflow: hidden; height: 100vh; width: 100vw; display: flex; flex-direction: column; }
+        body { background-color: #0d111a; color: #e0e6ed; overflow: hidden; height: 100vh; height: 100dvh; width: 100vw; display: flex; flex-direction: column; }
         
         /* Teams Theme Supports */
         body.teams-light { background-color: #f3f2f1; color: #252423; }
@@ -76,9 +76,10 @@
         .team-sidebar { flex: 1.2; display: flex; flex-direction: column; border-right: 1px solid #2a3652; padding: 15px; overflow-y: auto; background: #0f1420; }
         .team-main { flex: 1; display: flex; flex-direction: column; padding: 15px; overflow-y: auto; background: #0d111a; }
 
-        .selected-tag { display: inline-block; background: #2a3652; padding: 4px 10px; border-radius: 12px; font-size: 13px; margin: 2px 4px 4px 0; border: 1px solid #556896;}
-        .team-box { background: rgba(0,0,0,0.3); border: 1px solid #06d6a0; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-        .team-box.drag-over { border-color: #00d2ff !important; background: rgba(0, 210, 255, 0.1) !important; box-shadow: 0 0 15px rgba(0, 210, 255, 0.3) !important; }
+        .selected-tag { display: inline-block; background: #2a3652; padding: 4px 10px; border-radius: 12px; font-size: 13px; margin: 2px 4px 4px 0; border: 1px solid #556896; transition: 0.15s ease-in-out; user-select: none; -webkit-user-select: none; }
+        .selected-tag.tap-selected { border-color: #ffd700 !important; background: rgba(255, 215, 0, 0.25) !important; color: #fff !important; box-shadow: 0 0 10px rgba(255, 215, 0, 0.5); transform: scale(1.05); }
+        .team-box { background: rgba(0,0,0,0.3); border: 1px solid #06d6a0; border-radius: 8px; padding: 12px; margin-bottom: 12px; transition: border-color 0.2s, background 0.2s; }
+        .team-box.drag-over, .team-box.tap-target { border-color: #00d2ff !important; background: rgba(0, 210, 255, 0.12) !important; box-shadow: 0 0 15px rgba(0, 210, 255, 0.3) !important; cursor: pointer; }
 
         .player-row { display: flex; align-items: center; justify-content: space-between; padding: 6px; border-radius: 4px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.05); gap: 5px; }
         .player-row:hover { background: rgba(255,255,255,0.08); }
@@ -96,7 +97,7 @@
         .modal-content-select { max-width: 600px; border-color: #06d6a0; height: 90%; }
         
         .modal-header { padding: 15px 20px; border-bottom: 1px solid #2a3652; display: flex; justify-content: space-between; align-items: center; background: rgba(255, 255, 255, 0.03); border-top-left-radius: 12px; border-top-right-radius: 12px; flex-wrap: wrap; gap: 10px; }
-        .modal-body { padding: 15px; flex: 1; overflow-y: auto; display: flex; gap: 20px; flex-direction: row; }
+        .modal-body { padding: 15px; flex: 1; overflow-y: auto; display: flex; gap: 20px; flex-direction: row; padding-bottom: max(60px, env(safe-area-inset-bottom, 20px)); }
         .modal-body-col { flex-direction: column; gap: 10px; }
         .modal-close { cursor: pointer; color: #ff4d6d; font-size: 28px; background: none; border: none; padding: 0; line-height: 1;}
 
@@ -112,18 +113,33 @@
             
             .network-tools { position: relative; top: 0; left: 0; background: transparent; border: none; padding: 0; margin-bottom: 10px; width: 100%; box-shadow: none; justify-content: center; }
             .panel { width: calc(100% - 20px); left: 10px !important; right: auto !important; position: relative; margin-bottom: 10px; top: auto !important; bottom: auto !important; }
-            .pair-panel { display: none; } 
             
-            #network-wrapper { display: flex; flex-direction: column; }
+            /* モバイル版の最強の双璧パネル：画面上部オーバーレイとして広々と表示 */
+            .pair-panel { 
+                position: fixed !important; 
+                top: 70px !important; 
+                left: 10px !important; 
+                right: 10px !important; 
+                width: calc(100% - 20px) !important; 
+                max-height: 75vh !important; 
+                z-index: 150 !important; 
+                background: rgba(13, 17, 26, 0.98) !important; 
+                backdrop-filter: blur(16px) !important; 
+                box-shadow: 0 10px 40px rgba(0,0,0,0.85) !important;
+                border: 2px solid #ffd700 !important;
+                border-radius: 12px !important;
+            } 
+            
+            #network-wrapper { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
             #network { position: relative; height: 45vh; flex-shrink: 0; border-bottom: 1px solid #2a334a; }
-            #network-panels-mobile { display: flex; flex-direction: column; height: 55vh; overflow-y: auto; padding: 10px; background: #0d111a; }
-            .timeline-panel { position: relative; bottom: auto; left: auto; transform: none; width: 100%; margin-top: 10px; }
+            #network-panels-mobile { display: flex; flex-direction: column; height: 55vh; overflow-y: auto; padding: 10px; padding-bottom: max(90px, calc(70px + env(safe-area-inset-bottom, 0px))); background: #0d111a; }
+            .timeline-panel { position: relative; bottom: auto; left: auto; transform: none; width: 100%; margin-top: 10px; margin-bottom: 15px; }
 
-            .team-layout { flex-direction: column; overflow-y: auto; }
-            .team-sidebar { flex: none; border-right: none; border-bottom: 2px solid #2a3652; height: auto; padding: 10px; }
-            .team-main { flex: none; height: auto; min-height: 50vh; padding: 10px; }
+            .team-layout { flex-direction: column; overflow-y: auto; height: 100%; padding-bottom: max(90px, calc(70px + env(safe-area-inset-bottom, 0px))); }
+            .team-sidebar { flex: none; border-right: none; border-bottom: 2px solid #2a3652; height: auto; padding: 12px; }
+            .team-main { flex: none; height: auto; min-height: 50vh; padding: 12px; padding-bottom: 30px; }
             
-            .modal-body { flex-direction: column; }
+            .modal-body { flex-direction: column; padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px))); }
             .modal-content-player, .modal-content-select { height: 95%; width: 95%; }
         }
     </style>
@@ -1260,18 +1276,71 @@
             updateSelectedCount(); renderLivePreview(); aiStatus.innerHTML = "";
         };
 
-        window.dragStart = function(ev, pid) { ev.dataTransfer.setData("pid", pid); };
-        window.allowDrop = function(ev) { ev.preventDefault(); const box = ev.currentTarget; if (!box.classList.contains('drag-over')) box.classList.add('drag-over'); };
-        window.dragLeave = function(ev) { if (!ev.currentTarget.contains(ev.relatedTarget)) { ev.currentTarget.classList.remove('drag-over'); } };
+        // ドラッグ＆ドロップ + モバイルタップ移動機能
+        let activeSelectedPid = null; // タップ選択中のプレイヤーID
+        window.currentDraggedPid = null;
+
+        window.dragStart = function(ev, pid) { 
+            window.currentDraggedPid = pid;
+            if (ev.dataTransfer) {
+                ev.dataTransfer.setData("text/plain", pid);
+                ev.dataTransfer.setData("pid", pid);
+                ev.dataTransfer.effectAllowed = "move";
+            }
+        };
+
+        window.allowDrop = function(ev) { 
+            ev.preventDefault(); 
+            if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+            const box = ev.currentTarget; 
+            if (!box.classList.contains('drag-over')) box.classList.add('drag-over'); 
+        };
+
+        window.dragLeave = function(ev) { 
+            if (!ev.currentTarget.contains(ev.relatedTarget)) { 
+                ev.currentTarget.classList.remove('drag-over'); 
+            } 
+        };
 
         window.handleDrop = function(ev, teamIdx) {
-            ev.preventDefault(); ev.currentTarget.classList.remove('drag-over');
-            const pid = ev.dataTransfer.getData("pid");
+            ev.preventDefault(); 
+            ev.currentTarget.classList.remove('drag-over');
+            const pid = (ev.dataTransfer ? (ev.dataTransfer.getData("pid") || ev.dataTransfer.getData("text/plain")) : null) || window.currentDraggedPid;
+            window.currentDraggedPid = null;
             if(!pid) return;
 
-            if (teamIdx >= 0) fixedTeamAssignments[pid] = teamIdx; else delete fixedTeamAssignments[pid];
-            delete aiAssignedTeams[pid]; 
-            aiStatus.innerHTML = ""; updateSelectedCount(); renderLivePreview();
+            movePlayerToTeam(pid, teamIdx);
+        };
+
+        // プレイヤーを特定チーム（teamIdx >= 0）または自動割り当てプール（teamIdx === -1）へ移動
+        window.movePlayerToTeam = function(pid, teamIdx) {
+            if (teamIdx >= 0) {
+                fixedTeamAssignments[pid] = teamIdx;
+            } else {
+                delete fixedTeamAssignments[pid];
+            }
+            delete aiAssignedTeams[pid];
+            activeSelectedPid = null;
+            aiStatus.innerHTML = ""; 
+            updateSelectedCount(); 
+            renderLivePreview();
+        };
+
+        // タップで選択/配置（モバイルおよびPCクリック両対応）
+        window.handleTagClick = function(ev, pid) {
+            ev.stopPropagation();
+            if (activeSelectedPid === pid) {
+                activeSelectedPid = null; // 選択解除
+            } else {
+                activeSelectedPid = pid;   // 選択
+            }
+            renderLivePreview();
+        };
+
+        window.handleTeamBoxClick = function(ev, teamIdx) {
+            if (activeSelectedPid) {
+                movePlayerToTeam(activeSelectedPid, teamIdx);
+            }
         };
 
         function getPlayerRollingStats(pid, rollingWindow) {
@@ -1423,14 +1492,25 @@
             });
 
             let html = ``;
+            if (activeSelectedPid) {
+                const selectedName = globalPlayerNames[activeSelectedPid] || activeSelectedPid;
+                html += `<div style="background: rgba(255, 215, 0, 0.15); border: 1px solid #ffd700; border-radius: 6px; padding: 6px 12px; margin-bottom: 10px; font-size: 13px; color: #ffd700; display: flex; justify-content: space-between; align-items: center;">
+                    <span>👉 <b>${selectedName}</b> を移動中：配置先のチーム枠をタップしてください</span>
+                    <button onclick="activeSelectedPid=null; renderLivePreview();" style="background:none; border:none; color:#ffd700; font-size:16px; cursor:pointer; padding:0 4px;">✕</button>
+                </div>`;
+            }
+
             const colorOptionsHTML = colorPalette.map(c => `<option value="${c.hex}">${c.name}</option>`).join('');
 
             teams.forEach((tm, idx) => {
-                let names = tm.map(pid => `<span class="selected-tag" draggable="true" ondragstart="dragStart(event, '${pid}')" style="cursor:grab; border-color:${globalTeamSettings[idx].color}; background:${globalTeamSettings[idx].color}22; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`).join('');
+                let names = tm.map(pid => {
+                    const isSelected = (activeSelectedPid === pid);
+                    return `<span class="selected-tag ${isSelected ? 'tap-selected' : ''}" draggable="true" ondragstart="dragStart(event, '${pid}')" onclick="handleTagClick(event, '${pid}')" title="ドラッグまたはタップして移動" style="cursor:pointer; border-color:${globalTeamSettings[idx].color}; background:${globalTeamSettings[idx].color}22; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`;
+                }).join('');
                 if(names === '') names = '<span style="color:#6c7d93; font-size:12px; pointer-events:none;">（空き）</span>';
                 
                 html += `
-                <div class="team-box" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, ${idx})" style="border-color: ${globalTeamSettings[idx].color}66; background: rgba(0,0,0,0.2); min-height: 80px; transition: 0.2s;">
+                <div class="team-box ${activeSelectedPid ? 'tap-target' : ''}" onclick="handleTeamBoxClick(event, ${idx})" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, ${idx})" style="border-color: ${globalTeamSettings[idx].color}66; background: rgba(0,0,0,0.2); min-height: 80px; transition: 0.2s;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; pointer-events:auto; flex-wrap:wrap; gap:5px;">
                         <div style="display:flex; align-items:center; gap:8px;">
                             <span style="color:#a0aec0; font-size: 15px; font-weight:bold;">${String.fromCharCode(65 + idx)}</span>
@@ -1441,7 +1521,7 @@
                             </select>
                             <input type="text" value="${globalTeamSettings[idx].name}" onchange="updateTeamName(${idx}, this.value)" style="background:transparent; border:1px solid #3b486b; color:#fff; font-size:14px; padding:2px 6px; border-radius:4px; width:120px;" placeholder="チーム名">
                         </div>
-                        <button onclick="emptyTeam(${idx})" style="background:transparent; border:1px solid #ff4d6d; color:#ff4d6d; font-size:11px; padding:2px 6px; border-radius:4px;" title="メンバーをプールに戻す">🔄 戻す</button>
+                        <button onclick="event.stopPropagation(); emptyTeam(${idx});" style="background:transparent; border:1px solid #ff4d6d; color:#ff4d6d; font-size:11px; padding:2px 6px; border-radius:4px;" title="メンバーをプールに戻す">🔄 戻す</button>
                     </div>
                     <div style="margin-top:10px; pointer-events:auto;">${names}</div>
                     <div style="font-size:12px; margin-top:12px; padding: 6px; background: rgba(0,0,0,0.3); border-radius:4px; display:flex; justify-content:space-around;">
@@ -1451,13 +1531,16 @@
                 </div>`;
             });
             
-            let autoNames = autoPlayers.map(pid => `<span class="selected-tag" draggable="true" ondragstart="dragStart(event, '${pid}')" style="cursor:grab; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`).join('');
+            let autoNames = autoPlayers.map(pid => {
+                const isSelected = (activeSelectedPid === pid);
+                return `<span class="selected-tag ${isSelected ? 'tap-selected' : ''}" draggable="true" ondragstart="dragStart(event, '${pid}')" onclick="handleTagClick(event, '${pid}')" title="ドラッグまたはタップして移動" style="cursor:pointer; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`;
+            }).join('');
             if(autoNames === '') autoNames = '<span style="color:#6c7d93; font-size:12px; pointer-events:none;">（待機プレイヤーなし）</span>';
             
             html += `
-            <div class="team-box" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, -1)" style="border-color: #8b9bb4; background: rgba(255,255,255,0.02); border-style: dashed; min-height: 100px; transition: 0.2s;">
+            <div class="team-box ${activeSelectedPid ? 'tap-target' : ''}" onclick="handleTeamBoxClick(event, -1)" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, -1)" style="border-color: #8b9bb4; background: rgba(255,255,255,0.02); border-style: dashed; min-height: 100px; transition: 0.2s;">
                 <h4 style="pointer-events:none;"><span style="color:#8b9bb4; font-size: 14px;">🤖 自動割り当てプール (${autoPlayers.length}名)</span></h4>
-                <div style="margin-top:10px;">${autoNames}</div>
+                <div style="margin-top:10px; pointer-events:auto;">${autoNames}</div>
             </div>`;
             
             resultDiv.innerHTML = html;
