@@ -1080,14 +1080,15 @@
 
             globalPlayerNames = {}; globalPlayerHtmlNames = {}; globalPlayerRatings = {}; globalPlayerFlagCounts = {}; globalPlayerLastDate = {};
             globalTeammateCounts = {}; globalOpponentCounts = {}; globalMatchTeams = {}; playerRawGames = {};
-            const matchTeams = {}; const uniqueTeammates = {}; const playerGameCounts = {}; 
+            const playerGameCounts = {}; 
 
             let playersList = Array.isArray(rawJsonData.players) ? rawJsonData.players : Object.values(rawJsonData.players || {});
 
+            // 全プレイヤーの基本情報登録
             playersList.forEach(p => {
                 if(!p || (!p.playerId && !p.id)) return;
-                const pid = p.playerId || p.id;
-                let plainName = p.nick || String(pid).substring(0, 8); let htmlName = plainName;
+                const pid = String(p.playerId || p.id);
+                let plainName = p.nick || pid.substring(0, 8); let htmlName = plainName;
                 if (p.nick && p.realName && p.nick !== p.realName) {
                     plainName = `${p.nick} (${p.realName})`; htmlName = `${p.nick} <span style="font-size: 0.85em; color: #8b9bb4;">(${p.realName})</span>`;
                 } else if (!p.nick && p.realName) { plainName = p.realName; htmlName = p.realName; }
@@ -1101,30 +1102,78 @@
                 let pMaxDate = "0000-00-00";
 
                 validGames.forEach(g => {
-                    const key = `${g.eventId||'ev'}_${g.matchId||'m'}_${g.myTeam||'tm'}`;
-                    if (!matchTeams[key]) matchTeams[key] = { players: new Set(), won: false };
-                    matchTeams[key].players.add(pid);
-                    if (g.won || g.result === 'win') matchTeams[key].won = true;
-
-                    const mKey = `${g.eventId||'ev'}_${g.matchId||'m'}`;
-                    if (!globalMatchTeams[mKey]) globalMatchTeams[mKey] = {};
-                    if (!globalMatchTeams[mKey][g.myTeam]) globalMatchTeams[mKey][g.myTeam] = [];
-                    globalMatchTeams[mKey][g.myTeam].push(pid);
-                    
                     let gDate = g.date || (g.eventId && eventDateMap[g.eventId]) || "0000-00-00";
                     if (gDate > pMaxDate) pMaxDate = gDate;
                 });
                 globalPlayerLastDate[pid] = pMaxDate;
             });
 
-            // 対戦相手（敵チーム）関係の集計
-            Object.values(globalMatchTeams).forEach(teamMap => {
-                const teamKeys = Object.keys(teamMap);
-                if (teamKeys.length < 2) return;
-                for (let t1 = 0; t1 < teamKeys.length; t1++) {
-                    for (let t2 = t1 + 1; t2 < teamKeys.length; t2++) {
-                        const pList1 = teamMap[teamKeys[t1]];
-                        const pList2 = teamMap[teamKeys[t2]];
+            // 試合ごとにチームとプレイヤーを厳密にグループ化（一意な試合キーを使用）
+            // matchGroup[mKey] = { teams: { teamId: Set of pids }, wonTeam: teamId }
+            const matchGroup = {};
+
+            Object.entries(playerRawGames).forEach(([pid, games]) => {
+                games.forEach((g, gIdx) => {
+                    const evId = g.eventId || g.date || 'ev';
+                    const mId = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : `g_${gIdx}`);
+                    const mKey = `${evId}__${mId}`;
+                    const teamId = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam : (g.team !== undefined ? g.team : 'team_0'));
+
+                    if (!matchGroup[mKey]) matchGroup[mKey] = { teams: {}, wonTeam: null };
+                    if (!matchGroup[mKey].teams[teamId]) matchGroup[mKey].teams[teamId] = new Set();
+                    matchGroup[mKey].teams[teamId].add(pid);
+
+                    if (g.won || g.result === 'win') matchGroup[mKey].wonTeam = teamId;
+
+                    // globalMatchTeams も Set から配列にして保存（後方互換）
+                    if (!globalMatchTeams[mKey]) globalMatchTeams[mKey] = {};
+                    if (!globalMatchTeams[mKey][teamId]) globalMatchTeams[mKey][teamId] = [];
+                    if (!globalMatchTeams[mKey][teamId].includes(pid)) globalMatchTeams[mKey][teamId].push(pid);
+                });
+            });
+
+            // 試合データから共闘（同一チーム）と対戦（敵チーム）を1対1で整合集計
+            const pairStats = {};
+            const uniqueTeammates = {};
+
+            Object.values(matchGroup).forEach(mInfo => {
+                const teamEntries = Object.entries(mInfo.teams);
+
+                // 1. 同一チーム内のプレイヤー同士（共闘）
+                teamEntries.forEach(([tId, pSet]) => {
+                    const pList = Array.from(pSet);
+                    const isWon = (mInfo.wonTeam === tId);
+
+                    pList.forEach((p1, i) => {
+                        playerGameCounts[p1] = (playerGameCounts[p1] || 0) + 1;
+                        if (!globalTeammateCounts[p1]) globalTeammateCounts[p1] = {};
+                        if (!uniqueTeammates[p1]) uniqueTeammates[p1] = new Set();
+
+                        for (let j = i + 1; j < pList.length; j++) {
+                            const p2 = pList[j];
+                            // 共闘回数を加算
+                            globalTeammateCounts[p1][p2] = (globalTeammateCounts[p1][p2] || 0) + 1;
+                            if (!globalTeammateCounts[p2]) globalTeammateCounts[p2] = {};
+                            globalTeammateCounts[p2][p1] = (globalTeammateCounts[p2][p1] || 0) + 1;
+
+                            uniqueTeammates[p1].add(p2);
+                            if (!uniqueTeammates[p2]) uniqueTeammates[p2] = new Set();
+                            uniqueTeammates[p2].add(p1);
+
+                            const pairKey = [p1, p2].sort().join('|');
+                            if (!pairStats[pairKey]) pairStats[pairKey] = { total: 0, wins: 0, p1: p1, p2: p2 };
+                            pairStats[pairKey].total++;
+                            if (isWon) pairStats[pairKey].wins++;
+                        }
+                    });
+                });
+
+                // 2. 異なるチーム間のプレイヤー同士（対戦）
+                for (let t1 = 0; t1 < teamEntries.length; t1++) {
+                    for (let t2 = t1 + 1; t2 < teamEntries.length; t2++) {
+                        const pList1 = Array.from(teamEntries[t1][1]);
+                        const pList2 = Array.from(teamEntries[t2][1]);
+
                         pList1.forEach(p1 => {
                             if (!globalOpponentCounts[p1]) globalOpponentCounts[p1] = {};
                             pList2.forEach(p2 => {
@@ -1135,26 +1184,6 @@
                         });
                     }
                 }
-            });
-
-            const pairStats = {}; 
-            Object.values(matchTeams).forEach(info => {
-                const pids = Array.from(info.players);
-                pids.forEach((p1, i) => {
-                    playerGameCounts[p1] = (playerGameCounts[p1] || 0) + 1;
-                    if(!globalTeammateCounts[p1]) globalTeammateCounts[p1] = {};
-                    if(!uniqueTeammates[p1]) uniqueTeammates[p1] = new Set();
-                    for (let j = i + 1; j < pids.length; j++) {
-                        const p2 = pids[j];
-                        globalTeammateCounts[p1][p2] = (globalTeammateCounts[p1][p2] || 0) + 1;
-                        if(!globalTeammateCounts[p2]) globalTeammateCounts[p2] = {};
-                        globalTeammateCounts[p2][p1] = (globalTeammateCounts[p2][p1] || 0) + 1;
-                        uniqueTeammates[p1].add(p2); if(!uniqueTeammates[p2]) uniqueTeammates[p2] = new Set(); uniqueTeammates[p2].add(p1);
-                        const pairKey = [p1, p2].sort().join('|');
-                        if (!pairStats[pairKey]) pairStats[pairKey] = { total: 0, wins: 0, p1: p1, p2: p2 };
-                        pairStats[pairKey].total++; if (info.won) pairStats[pairKey].wins++;
-                    }
-                });
             });
 
             let pairArr = Object.values(pairStats).map(p => ({ ...p, score: p.wins * 10 + p.total }));
@@ -1259,31 +1288,42 @@
         // ネクスト・バディ候補（たくさん対戦しているのに共闘が少ないプレイヤー）
         // ==========================================
         function getUnpartneredRivals(pid) {
-            const oppMap = globalOpponentCounts[pid] || {};
-            const teamMap = globalTeammateCounts[pid] || {};
+            const strPid = String(pid);
+            const oppMap = globalOpponentCounts[strPid] || {};
+            const teamMap = globalTeammateCounts[strPid] || {};
             
-            const candidates = [];
+            const zeroAllyCandidates = [];
+            const lowAllyCandidates = [];
+
             Object.keys(oppMap).forEach(oppId => {
-                if (oppId === pid) return;
-                const vsCount = oppMap[oppId] || 0;
-                const allyCount = teamMap[oppId] || 0;
+                const strOppId = String(oppId);
+                if (strOppId === strPid) return;
+                const vsCount = oppMap[strOppId] || 0;
+                const allyCount = teamMap[strOppId] || 0;
                 
-                // 1回以上対戦しており、かつ共闘が0回または対戦数に比べて共闘が極めて少ない相手
-                if (vsCount >= 1 && (allyCount === 0 || vsCount >= allyCount * 2)) {
-                    const score = (allyCount === 0 ? 1000 : 0) + (vsCount * 10) - (allyCount * 15);
-                    candidates.push({
-                        pid: oppId,
-                        name: globalPlayerNames[oppId] || oppId,
-                        htmlName: globalPlayerHtmlNames[oppId] || oppId,
-                        vsCount: vsCount,
-                        allyCount: allyCount,
-                        score: score
-                    });
+                if (vsCount < 1) return;
+
+                const item = {
+                    pid: strOppId,
+                    name: globalPlayerNames[strOppId] || strOppId,
+                    htmlName: globalPlayerHtmlNames[strOppId] || strOppId,
+                    vsCount: vsCount,
+                    allyCount: allyCount
+                };
+
+                if (allyCount === 0) {
+                    zeroAllyCandidates.push(item);
+                } else if (vsCount >= allyCount * 2) {
+                    lowAllyCandidates.push(item);
                 }
             });
 
-            candidates.sort((a, b) => b.score - a.score);
-            return candidates.slice(0, 9); // TOP 9
+            // 未共闘（0回）を対戦回数が多い順にソート
+            zeroAllyCandidates.sort((a, b) => b.vsCount - a.vsCount);
+            // 希少共闘を対戦回数が多い順にソート
+            lowAllyCandidates.sort((a, b) => (b.vsCount - b.allyCount) - (a.vsCount - a.allyCount));
+
+            return [...zeroAllyCandidates, ...lowAllyCandidates].slice(0, 9); // TOP 9
         }
 
         function renderUnpartneredRivals(pid) {
@@ -1292,16 +1332,16 @@
             
             const rivals = getUnpartneredRivals(pid);
             if (rivals.length === 0) {
-                listEl.innerHTML = '<div style="grid-column: 1/-1; color: #8b9bb4; font-size: 12px; text-align: center; padding: 10px;">未共闘のライバルデータはありません</div>';
+                listEl.innerHTML = '<div style="grid-column: 1/-1; color: #8b9bb4; font-size: 12px; text-align: center; padding: 10px;">未共闘・希少共闘のライバルデータはありません</div>';
                 return;
             }
 
             let html = '';
             rivals.forEach((r, idx) => {
                 const isZeroAlly = (r.allyCount === 0);
-                const badgeText = isZeroAlly ? '🔥 共闘 0回 (未共闘！)' : `🤝 共闘 ${r.allyCount}回`;
+                const badgeText = isZeroAlly ? '🔥 未共闘（共闘 0回）' : `🤝 共闘 ${r.allyCount}回`;
                 const badgeColor = isZeroAlly ? '#ff4d6d' : '#06d6a0';
-                const stars = '★'.repeat(Math.min(5, Math.max(3, 5 - idx)));
+                const stars = '★'.repeat(Math.min(5, Math.max(3, 5 - Math.floor(idx / 2))));
                 
                 html += `
                 <div style="background: rgba(0,0,0,0.35); border: 1px solid ${isZeroAlly ? '#ffd70055' : '#3b486b'}; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; transition: 0.2s;">
@@ -1310,7 +1350,7 @@
                         <span style="font-size:11px; font-weight:bold; color:${badgeColor};">${badgeText}</span>
                     </div>
                     <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#8b9bb4;">
-                        <span>⚔️ 敵チームとして対戦: <b style="color:#ffbe0b;">${r.vsCount}回</b></span>
+                        <span>⚔️ 敵として対戦: <b style="color:#ffbe0b;">${r.vsCount}試合</b></span>
                         <span style="color:#00d2ff; font-size:10px;">相性期待度 ${stars}</span>
                     </div>
                 </div>`;
