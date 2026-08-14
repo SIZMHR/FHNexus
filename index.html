@@ -1122,7 +1122,9 @@
             Object.entries(playerRawGames).forEach(([pid, games]) => {
                 games.forEach((g, gIdx) => {
                     const evId = g.eventId || g.date || 'ev';
-                    const mId = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : `g_${gIdx}`);
+                    // 古いデータで matchId がない場合、個人の gIdx を使うとプレイヤー間で試合がバラバラになってしまうため、
+                    // 日付(時刻)がある場合はそれを使用し、無い場合はイベント全体の単一マッチ 'm' としてマージ（元の挙動）する
+                    const mId = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
                     const mKey = `${evId}__${mId}`;
                     const teamId = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam : (g.team !== undefined ? g.team : 'team_0'));
 
