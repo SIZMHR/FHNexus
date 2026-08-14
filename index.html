@@ -445,14 +445,29 @@
                     <button class="modal-close" id="btn-close-player-modal">&times;</button>
                 </div>
             </div>
-            <div class="modal-body">
-                <div style="flex: 1; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display:flex; flex-direction:column; min-height: 250px;">
-                    <h3 style="color:#06d6a0; font-size:13px; text-align:center; margin-bottom:5px;">プレイスタイル (偏差値)</h3>
-                    <div style="flex:1; position:relative;"><canvas id="radarChart"></canvas></div>
+            <div class="modal-body modal-body-col" style="overflow-y: auto;">
+                <div style="display:flex; gap: 15px; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 260px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display:flex; flex-direction:column; min-height: 250px;">
+                        <h3 style="color:#06d6a0; font-size:13px; text-align:center; margin-bottom:5px;">プレイスタイル (偏差値)</h3>
+                        <div style="flex:1; position:relative;"><canvas id="radarChart"></canvas></div>
+                    </div>
+                    <div style="flex: 1.5; min-width: 280px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display:flex; flex-direction:column; min-height: 250px;">
+                        <h3 style="color:#00d2ff; font-size:13px; text-align:center; margin-bottom:5px;">実力(μ)・安定度(σ) 推移</h3>
+                        <div style="flex:1; position:relative;"><canvas id="lineChart"></canvas></div>
+                    </div>
                 </div>
-                <div style="flex: 1.5; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display:flex; flex-direction:column; min-height: 250px;">
-                    <h3 style="color:#00d2ff; font-size:13px; text-align:center; margin-bottom:5px;">実力(μ)・安定度(σ) 推移</h3>
-                    <div style="flex:1; position:relative;"><canvas id="lineChart"></canvas></div>
+
+                <!-- たくさん対戦しているのに一緒にプレーしていないプレイヤー（ネクスト・バディ候補） -->
+                <div style="margin-top: 10px; background: rgba(255, 215, 0, 0.04); border: 1px solid rgba(255, 215, 0, 0.25); border-radius: 10px; padding: 12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom: 1px solid rgba(255,215,0,0.2); padding-bottom: 6px;">
+                        <h3 style="color:#ffd700; font-size:14px; margin:0; display:flex; align-items:center; gap:6px;">
+                            🤝 ネクスト・バディ候補 <span style="font-size:11px; color:#8b9bb4; font-weight:normal;">(たくさん対戦しているのに共闘回数が少ないライバル)</span>
+                        </h3>
+                        <span style="font-size:11px; color:#ffd700;">💡 今後同じチームで組むと新鮮な連携に！</span>
+                    </div>
+                    <div id="modal-rivals-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px;">
+                        <!-- JS で動的に描画 -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -1064,7 +1079,7 @@
             const hasEventsData = eventsList.length > 0;
 
             globalPlayerNames = {}; globalPlayerHtmlNames = {}; globalPlayerRatings = {}; globalPlayerFlagCounts = {}; globalPlayerLastDate = {};
-            globalTeammateCounts = {}; globalMatchTeams = {}; playerRawGames = {};
+            globalTeammateCounts = {}; globalOpponentCounts = {}; globalMatchTeams = {}; playerRawGames = {};
             const matchTeams = {}; const uniqueTeammates = {}; const playerGameCounts = {}; 
 
             let playersList = Array.isArray(rawJsonData.players) ? rawJsonData.players : Object.values(rawJsonData.players || {});
@@ -1100,6 +1115,26 @@
                     if (gDate > pMaxDate) pMaxDate = gDate;
                 });
                 globalPlayerLastDate[pid] = pMaxDate;
+            });
+
+            // 対戦相手（敵チーム）関係の集計
+            Object.values(globalMatchTeams).forEach(teamMap => {
+                const teamKeys = Object.keys(teamMap);
+                if (teamKeys.length < 2) return;
+                for (let t1 = 0; t1 < teamKeys.length; t1++) {
+                    for (let t2 = t1 + 1; t2 < teamKeys.length; t2++) {
+                        const pList1 = teamMap[teamKeys[t1]];
+                        const pList2 = teamMap[teamKeys[t2]];
+                        pList1.forEach(p1 => {
+                            if (!globalOpponentCounts[p1]) globalOpponentCounts[p1] = {};
+                            pList2.forEach(p2 => {
+                                if (!globalOpponentCounts[p2]) globalOpponentCounts[p2] = {};
+                                globalOpponentCounts[p1][p2] = (globalOpponentCounts[p1][p2] || 0) + 1;
+                                globalOpponentCounts[p2][p1] = (globalOpponentCounts[p2][p1] || 0) + 1;
+                            });
+                        });
+                    }
+                }
             });
 
             const pairStats = {}; 
@@ -1217,7 +1252,71 @@
             document.getElementById('modal-player-name').textContent = `${pName} - 詳細分析`;
             document.getElementById('player-modal').style.display = 'flex';
             updatePlayerCharts();
+            renderUnpartneredRivals(pid);
         };
+
+        // ==========================================
+        // ネクスト・バディ候補（たくさん対戦しているのに共闘が少ないプレイヤー）
+        // ==========================================
+        function getUnpartneredRivals(pid) {
+            const oppMap = globalOpponentCounts[pid] || {};
+            const teamMap = globalTeammateCounts[pid] || {};
+            
+            const candidates = [];
+            Object.keys(oppMap).forEach(oppId => {
+                if (oppId === pid) return;
+                const vsCount = oppMap[oppId] || 0;
+                const allyCount = teamMap[oppId] || 0;
+                
+                // 1回以上対戦しており、かつ共闘が0回または対戦数に比べて共闘が極めて少ない相手
+                if (vsCount >= 1 && (allyCount === 0 || vsCount >= allyCount * 2)) {
+                    const score = (allyCount === 0 ? 1000 : 0) + (vsCount * 10) - (allyCount * 15);
+                    candidates.push({
+                        pid: oppId,
+                        name: globalPlayerNames[oppId] || oppId,
+                        htmlName: globalPlayerHtmlNames[oppId] || oppId,
+                        vsCount: vsCount,
+                        allyCount: allyCount,
+                        score: score
+                    });
+                }
+            });
+
+            candidates.sort((a, b) => b.score - a.score);
+            return candidates.slice(0, 9); // TOP 9
+        }
+
+        function renderUnpartneredRivals(pid) {
+            const listEl = document.getElementById('modal-rivals-list');
+            if (!listEl) return;
+            
+            const rivals = getUnpartneredRivals(pid);
+            if (rivals.length === 0) {
+                listEl.innerHTML = '<div style="grid-column: 1/-1; color: #8b9bb4; font-size: 12px; text-align: center; padding: 10px;">未共闘のライバルデータはありません</div>';
+                return;
+            }
+
+            let html = '';
+            rivals.forEach((r, idx) => {
+                const isZeroAlly = (r.allyCount === 0);
+                const badgeText = isZeroAlly ? '🔥 共闘 0回 (未共闘！)' : `🤝 共闘 ${r.allyCount}回`;
+                const badgeColor = isZeroAlly ? '#ff4d6d' : '#06d6a0';
+                const stars = '★'.repeat(Math.min(5, Math.max(3, 5 - idx)));
+                
+                html += `
+                <div style="background: rgba(0,0,0,0.35); border: 1px solid ${isZeroAlly ? '#ffd70055' : '#3b486b'}; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; transition: 0.2s;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:bold; font-size:13px; color:#fff;">${r.htmlName}</span>
+                        <span style="font-size:11px; font-weight:bold; color:${badgeColor};">${badgeText}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#8b9bb4;">
+                        <span>⚔️ 敵チームとして対戦: <b style="color:#ffbe0b;">${r.vsCount}回</b></span>
+                        <span style="color:#00d2ff; font-size:10px;">相性期待度 ${stars}</span>
+                    </div>
+                </div>`;
+            });
+            listEl.innerHTML = html;
+        }
 
         function updateInfo(pid) {
             const node = currentNodes.get(pid);
@@ -1225,6 +1324,14 @@
             const ratingMu = (globalPlayerRatings[pid] !== undefined) ? globalPlayerRatings[pid].toFixed(2) : "不明";
             const flagCount = globalPlayerFlagCounts[pid] !== undefined ? globalPlayerFlagCounts[pid] : 0;
             
+            // 未共闘ライバルのトップ候補
+            const topRivals = getUnpartneredRivals(pid);
+            let rivalPreview = '<span style="color:#6c7d93;">なし</span>';
+            if (topRivals.length > 0) {
+                const r0 = topRivals[0];
+                rivalPreview = `<span style="color:#ffd700; font-weight:bold;">${r0.htmlName}</span> <span style="color:#8b9bb4; font-size:11px;">(対戦 ${r0.vsCount}回 / 共闘 ${r0.allyCount}回)</span>`;
+            }
+
             document.getElementById('info-name').innerHTML = `${globalPlayerHtmlNames[pid]} <span class="badge" style="font-size:12px; font-weight:normal; margin-left:8px;">${node.value}人と共闘</span>`;
             document.getElementById('info-details').innerHTML = `
                 <div style="color:#ffd700; margin-bottom:5px;">• <b>強さ(μ)</b>: ${ratingMu}</div>
@@ -1232,6 +1339,8 @@
                 <div>• <b>指定期間の出場数</b>: ${node.rawGames} 試合</div>
                 <div style="margin-top:8px; color:#8b9bb4;">よく組む相手:</div>
                 <div>${node.rawPartners}</div>
+                <div style="margin-top:8px; color:#ffd700;">🤝 未共闘の注目ライバル:</div>
+                <div>${rivalPreview}</div>
                 <button class="btn-green" style="width:100%; margin-top:12px; padding:8px; font-size:13px;" onclick="window.openPlayerModal('${pid}')">📊 個別詳細分析を開く</button>
             `;
         }
