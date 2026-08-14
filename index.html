@@ -356,33 +356,41 @@
                             <button onclick="setWizardStep(1)" style="flex: 1; padding: 12px; font-size: 14px; background: #1e2638; border: 1px solid #3b486b; color: #e0e6ed; border-radius: 8px;">
                                 ⇦ 参加者選択に戻る
                             </button>
-                            <button id="btn-generate-teams" class="btn-green" style="flex: 1.5; padding: 12px; font-size: 15px; border-radius: 8px;">
-                                ✨ チームを自動生成 ➔
+                            <button onclick="setWizardStep(3)" class="btn-green" style="flex: 1.5; padding: 12px; font-size: 15px; border-radius: 8px;">
+                                次へ：チーム配置・ドラフト ➔
                             </button>
                         </div>
                     </div>
 
                     <!-- Step 3: チーム生成＆ドラフトボード -->
                     <div id="step-pane-3" class="step-pane">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2a3652; padding-bottom: 8px; flex-shrink: 0; flex-wrap: wrap; gap:8px;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <h3 style="color: #fff; font-size: 16px; margin: 0;">📋 チーム編成 ドラフトボード</h3>
-                                <div id="ai-status" style="color:#06d6a0; font-size:12px; font-weight:bold;"></div>
+                        <div style="background: rgba(0,0,0,0.3); border: 1px solid #2a3652; border-radius: 10px; padding: 12px; margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                                <div>
+                                    <h3 style="color: #fff; font-size: 16px; margin: 0;">ステップ 3: チーム配置 ＆ ドラフトボード</h3>
+                                    <p style="font-size: 11px; color: #8b9bb4; margin: 2px 0 0 0;">
+                                        手動で固定したい人を配置してから「AI自動配置」を押すと、残りのメンバーが最適に割り振られます。
+                                    </p>
+                                </div>
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <button onclick="setWizardStep(2)" style="padding: 6px 12px; font-size: 12px; background: #1e2638; border: 1px solid #00d2ff; color: #00d2ff; border-radius: 6px;">⚙️ 条件変更</button>
+                                    <button onclick="setWizardStep(1)" style="padding: 6px 12px; font-size: 12px; background: #1e2638; border: 1px solid #3b486b; color: #8b9bb4; border-radius: 6px;">👥 参加者変更</button>
+                                    <button onclick="resetAllToPool()" style="padding: 6px 12px; font-size: 12px; background: #1e2638; border: 1px solid #ffbe0b; color: #ffbe0b; border-radius: 6px;" title="すべてのプレイヤーを自動割り当てプールに戻します">🔄 全員プールに戻す</button>
+                                </div>
                             </div>
-                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                <button onclick="setWizardStep(1)" style="padding: 4px 10px; font-size: 11px; background: #1e2638; border: 1px solid #3b486b; color: #8b9bb4; border-radius: 4px;">👥 参加者変更</button>
-                                <button onclick="setWizardStep(2)" style="padding: 4px 10px; font-size: 11px; background: #1e2638; border: 1px solid #00d2ff; color: #00d2ff; border-radius: 4px;">⚙️ 条件変更</button>
-                                <button onclick="document.getElementById('btn-generate-teams').click()" class="btn-green" style="padding: 4px 10px; font-size: 11px; border-radius: 4px;">🔄 AI再編成</button>
+
+                            <!-- AI自動配置の実行メインボタン -->
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <button id="btn-generate-teams" class="btn-green" style="flex: 1; padding: 12px; font-size: 15px; font-weight: bold; border-radius: 8px; box-shadow: 0 4px 15px rgba(6, 214, 160, 0.3);">
+                                    ✨ 残りのメンバーを AI 自動配置
+                                </button>
                             </div>
+                            <div id="ai-status" style="color:#06d6a0; font-size:12px; font-weight:bold; margin-top: 6px; text-align: center;"></div>
                         </div>
 
                         <div id="team-chart-container" style="display:none;">
                             <canvas id="teamComparisonChart"></canvas>
                         </div>
-
-                        <p style="font-size:11px; color:#8b9bb4; text-align:center; margin-bottom: 8px;">
-                            <span>💡 プレイヤー名をタップまたはドラッグして移動できます</span>
-                        </p>
 
                         <div id="team-result" style="flex: 1; overflow-y: auto;">
                             <!-- プレビュー描画領域 -->
@@ -395,7 +403,7 @@
         </div>
     </div>
 
-    <!-- モーダル 1: プレイヤー選択 -->
+    <!-- モーダル 1: プレイヤー選択 (ステップ1: 純粋な参加者選択) -->
     <div id="player-select-modal" class="modal-overlay">
         <div class="modal-content-select">
             <div class="modal-header">
@@ -404,12 +412,11 @@
             </div>
             <div class="modal-body modal-body-col">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px;">
-                    <div style="display: flex; gap: 5px;">
-                        <button id="btn-check-all" style="padding: 4px 8px; font-size:11px; background:#1e2638; border:1px solid #00d2ff; color:#00d2ff; border-radius: 4px;">全選択</button>
-                        <button id="btn-uncheck-all" style="padding: 4px 8px; font-size:11px; background:#1e2638; border:1px solid #ff4d6d; color:#ff4d6d; border-radius: 4px;">全解除</button>
-                        <button id="btn-reset-fixed" style="padding: 4px 8px; font-size:11px; background:#1e2638; border:1px solid #ffbe0b; color:#ffbe0b; border-radius: 4px;">🔄 固定リセット</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="btn-check-all" style="padding: 6px 12px; font-size:12px; background:#1e2638; border:1px solid #00d2ff; color:#00d2ff; border-radius: 4px;">全選択</button>
+                        <button id="btn-uncheck-all" style="padding: 6px 12px; font-size:12px; background:#1e2638; border:1px solid #ff4d6d; color:#ff4d6d; border-radius: 4px;">全解除</button>
                     </div>
-                    <div style="font-size: 13px;">選択中: <span id="selected-count-modal" style="color:#06d6a0; font-weight:bold; font-size: 16px;">0</span> 人</div>
+                    <div style="font-size: 14px;">選択中: <span id="selected-count-modal" style="color:#06d6a0; font-weight:bold; font-size: 18px;">0</span> 人</div>
                 </div>
                 
                 <div>
@@ -1883,6 +1890,14 @@
             renderLivePreview();
         };
 
+        // すべてのプレイヤーを自動割り当てプールに戻す
+        window.resetAllToPool = function() {
+            fixedTeamAssignments = {}; 
+            aiAssignedTeams = {};
+            aiStatus.innerHTML = "全プレイヤーを自動割り当てプールに戻しました";
+            renderLivePreview();
+        };
+
         function updateTeamSelectCheckboxes(nodesArr) {
             const container = document.getElementById('player-checkbox-list');
             container.innerHTML = '';
@@ -1890,7 +1905,6 @@
             const activeIds = new Set(nodesArr.map(n => n.id));
             selectedTeamPlayers.forEach(pid => { if(!activeIds.has(pid)) selectedTeamPlayers.delete(pid); });
 
-            const numTeams = parseInt(numTeamsInput.value) || 4;
             const frag = document.createDocumentFragment();
 
             nodesArr.slice().sort((a, b) => {
@@ -1898,34 +1912,46 @@
                 if (b.rawGames !== a.rawGames) return b.rawGames - a.rawGames;
                 return a.label.localeCompare(b.label, 'ja');
             }).forEach(n => {
-                const row = document.createElement('div'); row.className = 'player-row';
-                const label = document.createElement('label'); label.className = 'checkbox-label'; label.title = n.label;
-                const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = n.id; cb.checked = selectedTeamPlayers.has(n.id);
+                const row = document.createElement('div'); 
+                row.className = 'player-row';
+                row.style.cursor = 'pointer';
+                row.style.padding = '8px 10px';
+
+                const label = document.createElement('label'); 
+                label.className = 'checkbox-label'; 
+                label.title = n.label;
+                
+                const cb = document.createElement('input'); 
+                cb.type = 'checkbox'; 
+                cb.value = n.id; 
+                cb.checked = selectedTeamPlayers.has(n.id);
                 
                 cb.addEventListener('change', (e) => {
-                    if(e.target.checked) { selectedTeamPlayers.add(n.id); } 
-                    else { selectedTeamPlayers.delete(n.id); delete fixedTeamAssignments[n.id]; delete aiAssignedTeams[n.id]; }
-                    aiStatus.innerHTML = ""; updateSelectedCount(); renderLivePreview();
+                    if(e.target.checked) { 
+                        selectedTeamPlayers.add(n.id); 
+                    } else { 
+                        selectedTeamPlayers.delete(n.id); 
+                        delete fixedTeamAssignments[n.id]; 
+                        delete aiAssignedTeams[n.id]; 
+                    }
+                    aiStatus.innerHTML = ""; 
+                    updateSelectedCount(); 
+                    renderLivePreview();
                 });
                 
                 label.appendChild(cb);
-                const span = document.createElement('span'); span.innerHTML = globalPlayerHtmlNames[n.id] || n.label; label.appendChild(span);
-                const sel = document.createElement('select'); sel.className = 'fixed-select'; sel.innerHTML = '<option value="-1">自動配置</option>';
-                for(let t=0; t<numTeams; t++) {
-                    const opt = document.createElement('option'); opt.value = t; opt.textContent = `チーム${String.fromCharCode(65 + t)}`; sel.appendChild(opt);
-                }
-                
-                const currentT = fixedTeamAssignments[n.id] ?? aiAssignedTeams[n.id] ?? -1;
-                sel.value = currentT;
+                const span = document.createElement('span'); 
+                span.innerHTML = globalPlayerHtmlNames[n.id] || n.label; 
+                label.appendChild(span);
 
-                sel.addEventListener('change', (e) => {
-                    const val = parseInt(e.target.value);
-                    if(val >= 0) { fixedTeamAssignments[n.id] = val; cb.checked = true; selectedTeamPlayers.add(n.id); } 
-                    else { delete fixedTeamAssignments[n.id]; }
-                    delete aiAssignedTeams[n.id]; aiStatus.innerHTML = ""; updateSelectedCount(); renderLivePreview();
-                });
+                const infoSpan = document.createElement('span');
+                infoSpan.style.fontSize = '11px';
+                infoSpan.style.color = '#8b9bb4';
+                infoSpan.textContent = `${n.rawGames}試合`;
 
-                row.appendChild(label); row.appendChild(sel); frag.appendChild(row);
+                row.appendChild(label); 
+                row.appendChild(infoSpan); 
+                frag.appendChild(row);
             });
             container.appendChild(frag);
             updateSelectedCount();
@@ -1939,7 +1965,6 @@
         document.getElementById('btn-uncheck-all').addEventListener('click', () => {
             document.querySelectorAll('#player-checkbox-list input[type="checkbox"]').forEach(cb => cb.checked = false);
             selectedTeamPlayers.clear(); fixedTeamAssignments = {}; aiAssignedTeams = {};
-            document.querySelectorAll('.fixed-select').forEach(sel => sel.value = "-1");
             updateSelectedCount(); renderLivePreview(); aiStatus.innerHTML = "";
         });
 
@@ -2081,9 +2106,9 @@
                 let totalManneri = 0; teams.forEach(tm => totalManneri += calcTeamManneriPenalty(tm));
                 let rollLabel = rollingWindow > 0 ? `直近${rollingWindow}G` : "全期間";
                 renderLivePreview();
-                btnGenerateTeams.textContent = "✨ チームを自動生成 ➔"; 
+                btnGenerateTeams.textContent = "✨ 残りのメンバーを AI 自動配置"; 
                 btnGenerateTeams.disabled = false;
-                setWizardStep(3); // 自動的に Step 3（チーム生成・ドラフトボード）へ遷移
+                setWizardStep(3); // Step 3 を維持
             }, 50);
         });
     </script>
