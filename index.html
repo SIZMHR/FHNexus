@@ -242,18 +242,15 @@
                 <!-- ステップ進行バー -->
                 <div class="team-wizard-header">
                     <div class="wizard-step active" id="step-tab-1" onclick="setWizardStep(1)">
-                        <span class="step-num">1</span>
-                        <span>👥 参加者選択</span>
+                        <span>① 参加者選択</span>
                     </div>
                     <span class="wizard-arrow">➔</span>
                     <div class="wizard-step" id="step-tab-2" onclick="setWizardStep(2)">
-                        <span class="step-num">2</span>
-                        <span>⚙️ チーム・規模設定</span>
+                        <span>② チーム数設定</span>
                     </div>
                     <span class="wizard-arrow">➔</span>
                     <div class="wizard-step" id="step-tab-3" onclick="setWizardStep(3)">
-                        <span class="step-num">3</span>
-                        <span>✨ チーム生成・調整</span>
+                        <span>③ チーム生成</span>
                     </div>
                 </div>
 
@@ -262,7 +259,7 @@
                     <!-- Step 1: 参加プレイヤー選択 -->
                     <div id="step-pane-1" class="step-pane active" style="max-width: 650px; margin: 0 auto; width: 100%;">
                         <div style="background: rgba(0,0,0,0.3); border: 1px solid #2a3652; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 15px;">
-                            <h3 style="color: #06d6a0; font-size: 16px; margin-bottom: 8px;">ステップ 1: 参加プレイヤーの選択</h3>
+                            <h3 style="color: #06d6a0; font-size: 16px; margin-bottom: 8px;">ステップ 1: 参加者選択</h3>
                             <p style="font-size: 12px; color: #8b9bb4; margin-bottom: 15px;">本日のゲームに参加するメンバーを選択してください。</p>
                             
                             <button id="btn-open-player-select" class="btn-green" style="width: 100%; max-width: 380px; padding: 12px; font-size: 15px; border-radius: 8px; margin-bottom: 15px;">👥 プレイヤー選択リストを開く</button>
@@ -283,14 +280,14 @@
                         </div>
 
                         <button id="btn-step1-next" onclick="setWizardStep(2)" class="btn-green" style="width: 100%; padding: 12px; font-size: 15px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                            次へ：チーム条件設定 ➔
+                            次へ：チーム数設定 ➔
                         </button>
                     </div>
 
-                    <!-- Step 2: チーム・リーグ数 ＆ 集計設定 -->
+                    <!-- Step 2: チーム数設定 -->
                     <div id="step-pane-2" class="step-pane" style="max-width: 650px; margin: 0 auto; width: 100%;">
                         <div style="background: rgba(0,0,0,0.3); border: 1px solid #2a3652; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
-                            <h3 style="color: #00d2ff; font-size: 16px; margin-bottom: 8px; text-align: center;">ステップ 2: チーム規模 ＆ AI条件設定</h3>
+                            <h3 style="color: #00d2ff; font-size: 16px; margin-bottom: 8px; text-align: center;">ステップ 2: チーム数設定</h3>
                             <p style="font-size: 12px; color: #8b9bb4; margin-bottom: 15px; text-align: center;">参加人数に合わせてチーム数やAI編成のバランスを設定します。</p>
 
                             <!-- 参加者情報バナー -->
@@ -320,9 +317,9 @@
                                 </div>
                             </div>
 
-                            <!-- ローリングデータ集計窓（30, 60, 90, 全期間） -->
+                            <!-- ローリングデータ集計窓 -->
                             <div style="margin-bottom: 15px; background: rgba(0,210,255,0.05); padding: 12px; border-radius: 8px; border: 1px solid #00d2ff33;">
-                                <label style="font-size: 12px; color: #00d2ff; font-weight: bold; display: block; margin-bottom: 6px;">🔄 ローリングデータ集計窓（戦力算出の基準範囲）</label>
+                                <label style="font-size: 12px; color: #00d2ff; font-weight: bold; display: block; margin-bottom: 6px;">🔄 ローリングデータ集計窓</label>
                                 <select id="rolling-select" style="width: 100%; padding: 6px; font-size: 13px;">
                                     <option value="30">直近 30 試合</option>
                                     <option value="60" selected>直近 60 試合</option>
@@ -357,24 +354,24 @@
                                 ⇦ 参加者選択に戻る
                             </button>
                             <button onclick="setWizardStep(3)" class="btn-green" style="flex: 1.5; padding: 12px; font-size: 15px; border-radius: 8px;">
-                                次へ：チーム配置・ドラフト ➔
+                                次へ：チーム生成 ➔
                             </button>
                         </div>
                     </div>
 
-                    <!-- Step 3: チーム生成＆ドラフトボード -->
+                    <!-- Step 3: チーム生成 -->
                     <div id="step-pane-3" class="step-pane">
                         <div style="background: rgba(0,0,0,0.3); border: 1px solid #2a3652; border-radius: 10px; padding: 12px; margin-bottom: 12px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
                                 <div>
-                                    <h3 style="color: #fff; font-size: 16px; margin: 0;">ステップ 3: チーム配置 ＆ ドラフトボード</h3>
+                                    <h3 style="color: #fff; font-size: 16px; margin: 0;">ステップ 3: チーム生成</h3>
                                     <p style="font-size: 11px; color: #8b9bb4; margin: 2px 0 0 0;">
-                                        手動で固定したい人を配置してから「AI自動配置」を押すと、残りのメンバーが最適に割り振られます。
+                                        ドラッグドロップまたはタップでメンバーの入れ替えや並び替えができます。
                                     </p>
                                 </div>
                                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                    <button onclick="setWizardStep(2)" style="padding: 6px 12px; font-size: 12px; background: #1e2638; border: 1px solid #00d2ff; color: #00d2ff; border-radius: 6px;">⚙️ 条件変更</button>
-                                    <button onclick="setWizardStep(1)" style="padding: 6px 12px; font-size: 12px; background: #1e2638; border: 1px solid #3b486b; color: #8b9bb4; border-radius: 6px;">👥 参加者変更</button>
+                                    <button onclick="setWizardStep(2)" style="padding: 6px 12px; font-size: 12px; background: #1e2638; border: 1px solid #00d2ff; color: #00d2ff; border-radius: 6px;">⚙️ チーム数設定に戻る</button>
+                                    <button onclick="setWizardStep(1)" style="padding: 6px 12px; font-size: 12px; background: #1e2638; border: 1px solid #3b486b; color: #8b9bb4; border-radius: 6px;">👥 参加者選択に戻る</button>
                                     <button onclick="resetAllToPool()" style="padding: 6px 12px; font-size: 12px; background: #1e2638; border: 1px solid #ffbe0b; color: #ffbe0b; border-radius: 6px;" title="すべてのプレイヤーを自動割り当てプールに戻します">🔄 全員プールに戻す</button>
                                 </div>
                             </div>
@@ -895,6 +892,7 @@
         let selectedTeamPlayers = new Set(); 
         let fixedTeamAssignments = {};
         let aiAssignedTeams = {};
+        let customTeamOrders = {}; // チーム毎のメンバー並び順（ゼッケン番号順）
         let guestCounter = 1;
 
         let globalTeamSettings = {};
@@ -1558,23 +1556,108 @@
 
         // プレイヤーを特定チーム（teamIdx >= 0）または自動割り当てプール（teamIdx === -1）へ移動
         window.movePlayerToTeam = function(pid, teamIdx) {
+            const prevTeamIdx = fixedTeamAssignments[pid] ?? aiAssignedTeams[pid] ?? -1;
+
             if (teamIdx >= 0) {
                 fixedTeamAssignments[pid] = teamIdx;
             } else {
                 delete fixedTeamAssignments[pid];
             }
             delete aiAssignedTeams[pid];
+
+            // 元のチーム順序から削除
+            if (prevTeamIdx >= 0 && customTeamOrders[prevTeamIdx]) {
+                customTeamOrders[prevTeamIdx] = customTeamOrders[prevTeamIdx].filter(x => x !== pid);
+            }
+            
+            // 新しいチームの末尾に追加
+            if (teamIdx >= 0) {
+                if (!customTeamOrders[teamIdx]) customTeamOrders[teamIdx] = [];
+                if (!customTeamOrders[teamIdx].includes(pid)) {
+                    customTeamOrders[teamIdx].push(pid);
+                }
+            }
+
             activeSelectedPid = null;
-            aiStatus.innerHTML = ""; 
+            if (aiStatus) aiStatus.innerHTML = ""; 
             updateSelectedCount(); 
             renderLivePreview();
         };
 
-        // タップで選択/配置（モバイルおよびPCクリック両対応）
-        window.handleTagClick = function(ev, pid) {
+        // タグの上にドロップされた場合の並び替え処理
+        window.handleTagDrop = function(ev, targetPid, teamIdx) {
+            ev.preventDefault();
             ev.stopPropagation();
-            if (activeSelectedPid === pid) {
-                activeSelectedPid = null; // 選択解除
+            const pid = (ev.dataTransfer ? (ev.dataTransfer.getData("pid") || ev.dataTransfer.getData("text/plain")) : null) || window.currentDraggedPid;
+            window.currentDraggedPid = null;
+            if (!pid || pid === targetPid) return;
+
+            const prevTeamIdx = fixedTeamAssignments[pid] ?? aiAssignedTeams[pid] ?? -1;
+
+            if (teamIdx >= 0) {
+                fixedTeamAssignments[pid] = teamIdx;
+            } else {
+                delete fixedTeamAssignments[pid];
+            }
+            delete aiAssignedTeams[pid];
+
+            // 元のチーム順序から削除
+            if (prevTeamIdx >= 0 && customTeamOrders[prevTeamIdx]) {
+                customTeamOrders[prevTeamIdx] = customTeamOrders[prevTeamIdx].filter(x => x !== pid);
+            }
+
+            // ターゲットの直前に挿入
+            if (teamIdx >= 0) {
+                if (!customTeamOrders[teamIdx]) customTeamOrders[teamIdx] = [];
+                const targetPos = customTeamOrders[teamIdx].indexOf(targetPid);
+                if (targetPos >= 0) {
+                    customTeamOrders[teamIdx].splice(targetPos, 0, pid);
+                } else {
+                    customTeamOrders[teamIdx].push(pid);
+                }
+            }
+
+            if (aiStatus) aiStatus.innerHTML = "";
+            renderLivePreview();
+        };
+
+        // タップで選択/配置・並び替え（モバイルおよびPCクリック両対応）
+        window.handleTagClick = function(ev, pid, teamIdx = -1) {
+            ev.stopPropagation();
+            if (activeSelectedPid) {
+                if (activeSelectedPid === pid) {
+                    activeSelectedPid = null; // 選択解除
+                } else {
+                    // 移動元と移動先の順序操作
+                    const movingPid = activeSelectedPid;
+                    const prevTeamIdx = fixedTeamAssignments[movingPid] ?? aiAssignedTeams[movingPid] ?? -1;
+
+                    if (teamIdx >= 0) {
+                        fixedTeamAssignments[movingPid] = teamIdx;
+                    } else {
+                        delete fixedTeamAssignments[movingPid];
+                    }
+                    delete aiAssignedTeams[movingPid];
+
+                    // 前のチーム順序から削除
+                    if (prevTeamIdx >= 0 && customTeamOrders[prevTeamIdx]) {
+                        customTeamOrders[prevTeamIdx] = customTeamOrders[prevTeamIdx].filter(x => x !== movingPid);
+                    }
+
+                    // ターゲットの直前に挿入
+                    if (teamIdx >= 0) {
+                        if (!customTeamOrders[teamIdx]) customTeamOrders[teamIdx] = [];
+                        const targetPos = customTeamOrders[teamIdx].indexOf(pid);
+                        if (targetPos >= 0) {
+                            customTeamOrders[teamIdx].splice(targetPos, 0, movingPid);
+                        } else {
+                            customTeamOrders[teamIdx].push(movingPid);
+                        }
+                    }
+
+                    activeSelectedPid = null;
+                    if (aiStatus) aiStatus.innerHTML = "";
+                }
             } else {
                 activeSelectedPid = pid;   // 選択
             }
@@ -1726,6 +1809,21 @@
                 }
             });
 
+            // チームごとに順序を整理（ゼッケン順）
+            for (let t = 0; t < numTeams; t++) {
+                if (!customTeamOrders[t]) {
+                    customTeamOrders[t] = [];
+                }
+                const currentMembers = teams[t];
+                // customTeamOrders[t] に登録されている順でフィルターし、新しいメンバーは末尾に
+                const ordered = customTeamOrders[t].filter(pid => currentMembers.includes(pid));
+                currentMembers.forEach(pid => {
+                    if (!ordered.includes(pid)) ordered.push(pid);
+                });
+                teams[t] = ordered;
+                customTeamOrders[t] = ordered; // 現在の順序をキャッシュ保存
+            }
+
             btnExportCsv.style.display = selectedTeamPlayers.size > 0 ? 'block' : 'none';
 
             let teamStats = teams.map(tm => {
@@ -1749,7 +1847,7 @@
             if (activeSelectedPid) {
                 const selectedName = globalPlayerNames[activeSelectedPid] || activeSelectedPid;
                 html += `<div style="background: rgba(255, 215, 0, 0.15); border: 1px solid #ffd700; border-radius: 6px; padding: 6px 12px; margin-bottom: 10px; font-size: 13px; color: #ffd700; display: flex; justify-content: space-between; align-items: center;">
-                    <span>👉 <b>${selectedName}</b> を移動中：配置先のチーム枠をタップしてください</span>
+                    <span>👉 <b>${selectedName}</b> を移動中：配置先のチーム枠またはプレイヤー順序の隙間をタップしてください</span>
                     <button onclick="activeSelectedPid=null; renderLivePreview();" style="background:none; border:none; color:#ffd700; font-size:16px; cursor:pointer; padding:0 4px;">✕</button>
                 </div>`;
             }
@@ -1757,9 +1855,11 @@
             const colorOptionsHTML = colorPalette.map(c => `<option value="${c.hex}">${c.name}</option>`).join('');
 
             teams.forEach((tm, idx) => {
-                let names = tm.map(pid => {
+                let names = tm.map((pid, pIdx) => {
                     const isSelected = (activeSelectedPid === pid);
-                    return `<span class="selected-tag ${isSelected ? 'tap-selected' : ''}" draggable="true" ondragstart="dragStart(event, '${pid}')" onclick="handleTagClick(event, '${pid}')" title="ドラッグまたはタップして移動" style="cursor:pointer; border-color:${globalTeamSettings[idx].color}; background:${globalTeamSettings[idx].color}22; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`;
+                    const bib = pIdx + 1; // ゼッケン番号
+                    const displayName = `[${bib}] ${globalPlayerNames[pid] || pid}`;
+                    return `<span class="selected-tag ${isSelected ? 'tap-selected' : ''}" draggable="true" ondragstart="dragStart(event, '${pid}')" ondragover="allowDrop(event)" ondrop="handleTagDrop(event, '${pid}', ${idx})" onclick="handleTagClick(event, '${pid}', ${idx})" title="ドラッグまたはタップして順序移動" style="cursor:pointer; border-color:${globalTeamSettings[idx].color}; background:${globalTeamSettings[idx].color}22; z-index:10;">${displayName}</span>`;
                 }).join('');
                 if(names === '') names = '<span style="color:#6c7d93; font-size:12px; pointer-events:none;">（空き）</span>';
                 
@@ -1787,7 +1887,7 @@
             
             let autoNames = autoPlayers.map(pid => {
                 const isSelected = (activeSelectedPid === pid);
-                return `<span class="selected-tag ${isSelected ? 'tap-selected' : ''}" draggable="true" ondragstart="dragStart(event, '${pid}')" onclick="handleTagClick(event, '${pid}')" title="ドラッグまたはタップして移動" style="cursor:pointer; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`;
+                return `<span class="selected-tag ${isSelected ? 'tap-selected' : ''}" draggable="true" ondragstart="dragStart(event, '${pid}')" onclick="handleTagClick(event, '${pid}', -1)" title="ドラッグまたはタップして移動" style="cursor:pointer; z-index:10;">${globalPlayerHtmlNames[pid] || pid}</span>`;
             }).join('');
             if(autoNames === '') autoNames = '<span style="color:#6c7d93; font-size:12px; pointer-events:none;">（待機プレイヤーなし）</span>';
             
@@ -2135,6 +2235,7 @@
                     // 結果を aiAssignedTeams に反映（手動固定以外のプレイヤー）
                     aiAssignedTeams = {};
                     teams.forEach((tm, idx) => {
+                        customTeamOrders[idx] = [...tm]; // AIが生成した順番を初期順序としてゼッケン順に同期
                         tm.forEach(pid => { 
                             if (fixedTeamAssignments[pid] === undefined || fixedTeamAssignments[pid] < 0) { 
                                 aiAssignedTeams[pid] = idx; 
