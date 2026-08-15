@@ -385,13 +385,6 @@
                                     ✨ 残りのメンバーを AI 自動配置
                                 </button>
                             </div>
-                            <div id="ai-status" style="color:#06d6a0; font-size:12px; font-weight:bold; margin-top: 6px; text-align: center;"></div>
-                        </div>
-
-                        <div id="team-chart-container" style="display:none;">
-                            <canvas id="teamComparisonChart"></canvas>
-                        </div>
-
                         <div id="team-result" style="flex: 1; overflow-y: auto;">
                             <!-- プレビュー描画領域 -->
                         </div>
@@ -1708,29 +1701,39 @@
         });
 
         function renderLivePreview() {
-            const numTeams = parseInt(numTeamsInput.value) || 4; const rollingWindow = parseInt(rollingSelect.value) || 0;
-            const resultDiv = document.getElementById('team-result'); const chartContainer = document.getElementById('team-chart-container');
+            const numTeams = parseInt(numTeamsInput.value) || 4; 
+            const rollingWindow = parseInt(rollingSelect.value) || 0;
+            const resultDiv = document.getElementById('team-result');
             
-            let teams = Array.from({length: numTeams}, () => []); let autoPlayers = [];
+            // チーム設定が足りない場合は自動初期化
+            if (!globalTeamSettings || globalTeamSettings.length < numTeams) {
+                initTeamSettings(numTeams);
+            }
+
+            let teams = Array.from({length: numTeams}, () => []); 
+            let autoPlayers = [];
             
             selectedTeamPlayers.forEach(pid => {
-                let tIdx = fixedTeamAssignments[pid]; if(tIdx === undefined) tIdx = aiAssignedTeams[pid];
-                if (tIdx !== undefined && tIdx >= 0 && tIdx < numTeams) teams[tIdx].push(pid); else autoPlayers.push(pid);
+                let tIdx = fixedTeamAssignments[pid]; 
+                if(tIdx === undefined) tIdx = aiAssignedTeams[pid];
+                if (tIdx !== undefined && tIdx >= 0 && tIdx < numTeams) {
+                    teams[tIdx].push(pid); 
+                } else { 
+                    autoPlayers.push(pid); 
+                }
             });
 
             btnExportCsv.style.display = selectedTeamPlayers.size > 0 ? 'block' : 'none';
 
-            let maxMu = 0.1, maxF = 0.1;
             let teamStats = teams.map(tm => {
                 let sumMu = 0, sumF = 0;
-                tm.forEach(pid => { const st = getPlayerRollingStats(pid, rollingWindow); sumMu += st.mu; sumF += st.flags; });
-                if(sumMu > maxMu) maxMu = sumMu; if(sumF > maxF) maxF = sumF;
+                tm.forEach(pid => { 
+                    const st = getPlayerRollingStats(pid, rollingWindow); 
+                    sumMu += st.mu; 
+                    sumF += st.flags; 
+                });
                 return { sumMu, sumF };
             });
-
-            if (numTeams > 0 && selectedTeamPlayers.size > 0) {
-                chartContainer.style.display = 'block'; updateTeamComparisonChart(teams, teamStats, numTeams);
-            } else { chartContainer.style.display = 'none'; }
 
             document.querySelectorAll('.player-row').forEach(row => {
                 const cb = row.querySelector('input[type="checkbox"]'); const sel = row.querySelector('.fixed-select');
@@ -1980,137 +1983,175 @@
         // 高速化された チーム編成 AI (Simulated Annealing)
         // ==========================================
         btnGenerateTeams.addEventListener('click', () => {
-            if (selectedTeamPlayers.size === 0) return alert("プレイヤーを選択してください");
-            const numTeams = parseInt(numTeamsInput.value);
+            if (selectedTeamPlayers.size === 0) return alert("参加プレイヤーを選択してください");
+            const numTeams = parseInt(numTeamsInput.value) || 4;
             if (isNaN(numTeams) || numTeams < 2) return alert("2以上のチーム数を指定してください");
+            
             const activePlayerIds = Array.from(selectedTeamPlayers);
             if (activePlayerIds.length < numTeams) return alert("参加人数がチーム数より少ないです");
 
-            btnGenerateTeams.textContent = "⌛ AI最適化中..."; btnGenerateTeams.disabled = true; aiStatus.innerHTML = "計算中...";
-            aiAssignedTeams = {}; 
+            btnGenerateTeams.textContent = "⌛ AI最適化中..."; 
+            btnGenerateTeams.disabled = true; 
+            if (aiStatus) aiStatus.innerHTML = "計算中...";
 
             setTimeout(() => {
-                const rollingWindow = parseInt(rollingSelect.value);
-                const rollingTeammates = {};
-                activePlayerIds.forEach(pid => { rollingTeammates[pid] = {}; });
-                const matchTeamsRolling = {};
+                try {
+                    // チーム設定の確認と初期化
+                    if (!globalTeamSettings || globalTeamSettings.length < numTeams) {
+                        initTeamSettings(numTeams);
+                    }
 
-                activePlayerIds.forEach(pid => {
-                    let games = playerRawGames[pid] || [];
-                    if (rollingWindow > 0 && games.length > rollingWindow) games = games.slice(-rollingWindow);
-                    games.forEach(g => {
-                        const key = `${g.eventId||'ev'}_${g.matchId||'m'}_${g.myTeam||'tm'}`;
-                        if (!matchTeamsRolling[key]) matchTeamsRolling[key] = new Set();
-                        matchTeamsRolling[key].add(pid);
+                    const rollingWindow = parseInt(rollingSelect ? rollingSelect.value : "60") || 0;
+                    const rollingTeammates = {};
+                    activePlayerIds.forEach(pid => { rollingTeammates[pid] = {}; });
+                    const matchTeamsRolling = {};
+
+                    activePlayerIds.forEach(pid => {
+                        let games = playerRawGames[pid] || [];
+                        if (rollingWindow > 0 && games.length > rollingWindow) games = games.slice(-rollingWindow);
+                        games.forEach((g, gIdx) => {
+                            const evId = g.eventId || g.date || 'ev';
+                            const mId = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
+                            const mKey = `${evId}__${mId}`;
+                            const teamId = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam : (g.team !== undefined ? g.team : 'team_0'));
+                            const fullKey = `${mKey}__${teamId}`;
+                            if (!matchTeamsRolling[fullKey]) matchTeamsRolling[fullKey] = new Set();
+                            matchTeamsRolling[fullKey].add(pid);
+                        });
                     });
-                });
 
-                Object.values(matchTeamsRolling).forEach(pSet => {
-                    const pids = Array.from(pSet);
-                    pids.forEach((p1, i) => {
-                        for(let j=i+1; j<pids.length; j++) {
-                            let p2 = pids[j];
-                            rollingTeammates[p1][p2] = (rollingTeammates[p1][p2] || 0) + 1;
-                            if(!rollingTeammates[p2]) rollingTeammates[p2] = {};
-                            rollingTeammates[p2][p1] = (rollingTeammates[p2][p1] || 0) + 1;
+                    Object.values(matchTeamsRolling).forEach(pSet => {
+                        const pids = Array.from(pSet);
+                        pids.forEach((p1, i) => {
+                            for(let j = i + 1; j < pids.length; j++) {
+                                let p2 = pids[j];
+                                rollingTeammates[p1][p2] = (rollingTeammates[p1][p2] || 0) + 1;
+                                if(!rollingTeammates[p2]) rollingTeammates[p2] = {};
+                                rollingTeammates[p2][p1] = (rollingTeammates[p2][p1] || 0) + 1;
+                            }
+                        });
+                    });
+
+                    // キャッシュ用プレイヤー情報
+                    const playerStatsCache = {};
+                    let globalMuSum = 0; 
+                    let globalFlagSum = 0;
+                    activePlayerIds.forEach(pid => {
+                        const st = getPlayerRollingStats(pid, rollingWindow);
+                        playerStatsCache[pid] = st;
+                        globalMuSum += st.mu; 
+                        globalFlagSum += st.flags;
+                    });
+
+                    let targetTeamMuSum = globalMuSum / numTeams; 
+                    let targetTeamFlagSum = globalFlagSum / numTeams;
+
+                    let teams = Array.from({length: numTeams}, () => []);
+                    let unassignedPlayerIds = [];
+
+                    // 手動固定されているプレイヤーを各チームへ、未固定を unassigned へ
+                    activePlayerIds.forEach(pid => {
+                        const fixedT = fixedTeamAssignments[pid];
+                        if (fixedT !== undefined && fixedT >= 0 && fixedT < numTeams) {
+                            teams[fixedT].push(pid);
+                        } else { 
+                            unassignedPlayerIds.push(pid); 
                         }
                     });
-                });
 
-                // キャッシュ用プレイヤー情報
-                const playerStatsCache = {};
-                let globalMuSum = 0; let globalFlagSum = 0;
-                activePlayerIds.forEach(pid => {
-                    const st = getPlayerRollingStats(pid, rollingWindow);
-                    playerStatsCache[pid] = st;
-                    globalMuSum += st.mu; globalFlagSum += st.flags;
-                });
+                    // 未割り当てプレイヤーを各チームへ初期分配（人数均等）
+                    unassignedPlayerIds.sort(() => Math.random() - 0.5);
+                    unassignedPlayerIds.forEach(pid => {
+                        let minSizeIdx = 0;
+                        for(let t = 1; t < numTeams; t++) { 
+                            if(teams[t].length < teams[minSizeIdx].length) minSizeIdx = t; 
+                        }
+                        teams[minSizeIdx].push(pid);
+                    });
 
-                let targetTeamMuSum = globalMuSum / numTeams; 
-                let targetTeamFlagSum = globalFlagSum / numTeams;
+                    const wManneri = (weightManneriInput ? parseInt(weightManneriInput.value) : 50) / 100.0;
+                    const wSkill = (weightSkillInput ? parseInt(weightSkillInput.value) : 50) / 100.0;
+                    const wFlag = (weightFlagInput ? parseInt(weightFlagInput.value) : 50) / 100.0;
 
-                let teams = Array.from({length: numTeams}, () => []);
-                let unassignedPlayerIds = [];
+                    function calcTeamManneriPenalty(team) {
+                        let penalty = 0;
+                        for(let i = 0; i < team.length; i++) {
+                            const p1Map = rollingTeammates[team[i]];
+                            if (!p1Map) continue;
+                            for(let j = i + 1; j < team.length; j++) {
+                                if (p1Map[team[j]]) penalty += p1Map[team[j]];
+                            }
+                        }
+                        return penalty;
+                    }
 
-                activePlayerIds.forEach(pid => {
-                    if (fixedTeamAssignments[pid] !== undefined && fixedTeamAssignments[pid] >= 0 && fixedTeamAssignments[pid] < numTeams) {
-                        teams[fixedTeamAssignments[pid]].push(pid);
-                    } else { unassignedPlayerIds.push(pid); }
-                });
+                    function calcTeamSkillPenalty(team) {
+                        let teamMuSum = 0; 
+                        team.forEach(pid => { if (playerStatsCache[pid]) teamMuSum += playerStatsCache[pid].mu; }); 
+                        return Math.abs(teamMuSum - targetTeamMuSum);
+                    }
 
-                unassignedPlayerIds.sort(() => Math.random() - 0.5);
-                unassignedPlayerIds.forEach(pid => {
-                    let minSizeIdx = 0;
-                    for(let t=1; t<numTeams; t++) { if(teams[t].length < teams[minSizeIdx].length) minSizeIdx = t; }
-                    teams[minSizeIdx].push(pid);
-                });
+                    function calcTeamFlagPenalty(team) {
+                        let teamFlagSum = 0; 
+                        team.forEach(pid => { if (playerStatsCache[pid]) teamFlagSum += playerStatsCache[pid].flags; }); 
+                        return Math.abs(teamFlagSum - targetTeamFlagSum);
+                    }
 
-                const wManneri = parseInt(weightManneriInput.value) / 100.0;
-                const wSkill = parseInt(weightSkillInput.value) / 100.0;
-                const wFlag = parseInt(weightFlagInput.value) / 100.0;
+                    // 焼きなまし法による最適化スワップ
+                    const ITERATIONS = 50000;
+                    for(let iter = 0; iter < ITERATIONS; iter++) {
+                        let t1Idx = Math.floor(Math.random() * numTeams); 
+                        let t2Idx = Math.floor(Math.random() * numTeams);
+                        if(t1Idx === t2Idx) continue;
+                        let t1 = teams[t1Idx]; 
+                        let t2 = teams[t2Idx];
+                        
+                        let swappable1 = t1.filter(pid => fixedTeamAssignments[pid] === undefined || fixedTeamAssignments[pid] < 0);
+                        let swappable2 = t2.filter(pid => fixedTeamAssignments[pid] === undefined || fixedTeamAssignments[pid] < 0);
+                        if(swappable1.length === 0 || swappable2.length === 0) continue;
 
-                function calcTeamManneriPenalty(team) {
-                    let penalty = 0;
-                    for(let i=0; i<team.length; i++) {
-                        const p1Map = rollingTeammates[team[i]];
-                        if (!p1Map) continue;
-                        for(let j=i+1; j<team.length; j++) {
-                            if (p1Map[team[j]]) penalty += p1Map[team[j]];
+                        let p1 = swappable1[Math.floor(Math.random() * swappable1.length)]; 
+                        let p2 = swappable2[Math.floor(Math.random() * swappable2.length)];
+                        let p1Idx = t1.indexOf(p1); 
+                        let p2Idx = t2.indexOf(p2);
+
+                        let costBefore = (calcTeamManneriPenalty(t1) + calcTeamManneriPenalty(t2)) * wManneri 
+                                       + (calcTeamSkillPenalty(t1) + calcTeamSkillPenalty(t2)) * 3.0 * wSkill 
+                                       + (calcTeamFlagPenalty(t1) + calcTeamFlagPenalty(t2)) * 3.0 * wFlag;
+                        
+                        t1[p1Idx] = p2; 
+                        t2[p2Idx] = p1;
+                        
+                        let costAfter = (calcTeamManneriPenalty(t1) + calcTeamManneriPenalty(t2)) * wManneri 
+                                      + (calcTeamSkillPenalty(t1) + calcTeamSkillPenalty(t2)) * 3.0 * wSkill 
+                                      + (calcTeamFlagPenalty(t1) + calcTeamFlagPenalty(t2)) * 3.0 * wFlag;
+
+                        let diff = costAfter - costBefore;
+                        if (diff > 1e-5 || (Math.abs(diff) <= 1e-5 && Math.random() >= 0.05)) { 
+                            t1[p1Idx] = p1; 
+                            t2[p2Idx] = p2; 
                         }
                     }
-                    return penalty;
+
+                    // 結果を aiAssignedTeams に反映（手動固定以外のプレイヤー）
+                    aiAssignedTeams = {};
+                    teams.forEach((tm, idx) => {
+                        tm.forEach(pid => { 
+                            if (fixedTeamAssignments[pid] === undefined || fixedTeamAssignments[pid] < 0) { 
+                                aiAssignedTeams[pid] = idx; 
+                            } 
+                        });
+                    });
+
+                    if (aiStatus) aiStatus.innerHTML = `✅ AI自動配置完了（${activePlayerIds.length}名）`;
+                } catch (err) {
+                    console.error("AI Team Generation Error:", err);
+                    alert("AI編成中にエラーが発生しました:\n" + err.message);
+                } finally {
+                    renderLivePreview();
+                    btnGenerateTeams.textContent = "✨ 残りのメンバーを AI 自動配置"; 
+                    btnGenerateTeams.disabled = false;
                 }
-
-                function calcTeamSkillPenalty(team) {
-                    let teamMuSum = 0; team.forEach(pid => teamMuSum += playerStatsCache[pid].mu); 
-                    return Math.abs(teamMuSum - targetTeamMuSum);
-                }
-
-                function calcTeamFlagPenalty(team) {
-                    let teamFlagSum = 0; team.forEach(pid => teamFlagSum += playerStatsCache[pid].flags); 
-                    return Math.abs(teamFlagSum - targetTeamFlagSum);
-                }
-
-                let ITERATIONS = 100000;
-                for(let iter=0; iter<ITERATIONS; iter++) {
-                    let t1Idx = Math.floor(Math.random() * numTeams); 
-                    let t2Idx = Math.floor(Math.random() * numTeams);
-                    if(t1Idx === t2Idx) continue;
-                    let t1 = teams[t1Idx]; let t2 = teams[t2Idx];
-                    let swappable1 = t1.filter(pid => fixedTeamAssignments[pid] === undefined || fixedTeamAssignments[pid] < 0);
-                    let swappable2 = t2.filter(pid => fixedTeamAssignments[pid] === undefined || fixedTeamAssignments[pid] < 0);
-                    if(swappable1.length === 0 || swappable2.length === 0) continue;
-
-                    let p1 = swappable1[Math.floor(Math.random() * swappable1.length)]; 
-                    let p2 = swappable2[Math.floor(Math.random() * swappable2.length)];
-                    let p1Idx = t1.indexOf(p1); let p2Idx = t2.indexOf(p2);
-
-                    let costBefore = (calcTeamManneriPenalty(t1) + calcTeamManneriPenalty(t2)) * wManneri 
-                                   + (calcTeamSkillPenalty(t1) + calcTeamSkillPenalty(t2)) * 3.0 * wSkill 
-                                   + (calcTeamFlagPenalty(t1) + calcTeamFlagPenalty(t2)) * 3.0 * wFlag;
-                    
-                    t1[p1Idx] = p2; t2[p2Idx] = p1;
-                    
-                    let costAfter = (calcTeamManneriPenalty(t1) + calcTeamManneriPenalty(t2)) * wManneri 
-                                  + (calcTeamSkillPenalty(t1) + calcTeamSkillPenalty(t2)) * 3.0 * wSkill 
-                                  + (calcTeamFlagPenalty(t1) + calcTeamFlagPenalty(t2)) * 3.0 * wFlag;
-
-                    let diff = costAfter - costBefore;
-                    if (diff > 1e-5 || (Math.abs(diff) <= 1e-5 && Math.random() >= 0.05)) { 
-                        t1[p1Idx] = p1; t2[p2Idx] = p2; 
-                    }
-                }
-
-                teams.forEach((tm, idx) => {
-                    tm.forEach(pid => { if (fixedTeamAssignments[pid] === undefined) { aiAssignedTeams[pid] = idx; } });
-                });
-
-                let totalManneri = 0; teams.forEach(tm => totalManneri += calcTeamManneriPenalty(tm));
-                let rollLabel = rollingWindow > 0 ? `直近${rollingWindow}G` : "全期間";
-                renderLivePreview();
-                btnGenerateTeams.textContent = "✨ 残りのメンバーを AI 自動配置"; 
-                btnGenerateTeams.disabled = false;
-                setWizardStep(3); // Step 3 を維持
             }, 50);
         });
     </script>
