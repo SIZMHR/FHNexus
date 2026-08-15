@@ -1973,11 +1973,7 @@
             updateSelectedCount(); renderLivePreview(); aiStatus.innerHTML = "";
         });
 
-        document.getElementById('btn-reset-fixed').addEventListener('click', () => {
-            fixedTeamAssignments = {}; aiAssignedTeams = {}; 
-            document.querySelectorAll('.fixed-select').forEach(sel => sel.value = "-1");
-            updateSelectedCount(); renderLivePreview(); aiStatus.innerHTML = "固定設定をリセットしました";
-        });
+
 
         // ==========================================
         // 高速化された チーム編成 AI (Simulated Annealing)
