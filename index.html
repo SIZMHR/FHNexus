@@ -385,6 +385,9 @@
                                     ✨ 残りのメンバーを AI 自動配置
                                 </button>
                             </div>
+                            <div id="ai-status" style="color:#06d6a0; font-size:12px; font-weight:bold; margin-top: 6px; text-align: center;"></div>
+                        </div>
+
                         <div id="team-result" style="flex: 1; overflow-y: auto;">
                             <!-- プレビュー描画領域 -->
                         </div>
@@ -1939,7 +1942,7 @@
                         delete fixedTeamAssignments[n.id]; 
                         delete aiAssignedTeams[n.id]; 
                     }
-                    aiStatus.innerHTML = ""; 
+                    if (aiStatus) aiStatus.innerHTML = ""; 
                     updateSelectedCount(); 
                     renderLivePreview();
                 });
@@ -1970,7 +1973,7 @@
         document.getElementById('btn-uncheck-all').addEventListener('click', () => {
             document.querySelectorAll('#player-checkbox-list input[type="checkbox"]').forEach(cb => cb.checked = false);
             selectedTeamPlayers.clear(); fixedTeamAssignments = {}; aiAssignedTeams = {};
-            updateSelectedCount(); renderLivePreview(); aiStatus.innerHTML = "";
+            updateSelectedCount(); renderLivePreview(); if (aiStatus) aiStatus.innerHTML = "";
         });
 
 
