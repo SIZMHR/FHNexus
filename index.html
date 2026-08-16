@@ -216,8 +216,8 @@
 
                     <div class="panel legend-panel" id="legend-panel">
                         <div style="font-weight: bold; margin-bottom: 6px; color: #8b9bb4;">凡例</div>
-                        <div><span style="color:#00d2ff;">● 円の大きさ</span>：ユニーク味方数</div>
-                        <div><span style="color:#ffd700; font-weight:bold;">― 金色の線</span>：双璧ペア</div>
+                        <div><span style="color:#00d2ff;">● 円の大きさ</span>：ユニーク味方数（多いほど大きい）</div>
+                        <div><span style="color:#8b9bb4;">● 円の色</span>：プレイヤー識別用（ランダム付与）</div>
                     </div>
 
                     <div class="panel info-panel" id="info-panel">
@@ -1219,7 +1219,7 @@
                 let partners = Object.entries(globalTeammateCounts[pid] || {}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x => `${globalPlayerNames[x[0]] || x[0]} (${x[1]}回)`).join(', ');
                 nodesArr.push({
                     id: pid, label: globalPlayerNames[pid], value: uCnt, rawGames: playerGameCounts[pid], rawPartners: partners, lastDate: globalPlayerLastDate[pid],
-                    color: { background: colorPalette[cIdx].hex, border: '#fff', highlight: { border: '#00d2ff' } }, font: { color: '#fff', size: uCnt > 20 ? 14 : 11 }
+                    color: { background: colorPalette[cIdx].hex, border: '#fff', highlight: { border: '#00d2ff' } }, font: { color: '#fff', size: 12 }
                 });
                 
                 const opt = document.createElement('option');
@@ -1242,10 +1242,10 @@
                     const w = globalTeammateCounts[p1][p2];
                     const isSp = topPairKeys.has(key);
                     unFilteredEdges.push({
-                        from: p1, to: p2, value: isSp ? w * 2 : w, originalWeight: w, isSpecial: isSp,
+                        from: p1, to: p2, value: w, originalWeight: w, isSpecial: isSp,
                         title: isSp ? `🌟 最強の双璧: ${w}回共闘` : `${w}回共闘`,
-                        color: isSp ? { color: '#ffd700', highlight: '#fff' } : { color: 'rgba(100,180,255,0.15)', highlight: '#00d2ff' },
-                        width: isSp ? 4 : 1, shadow: isSp ? { enabled: true, color: '#ffea00', size: 10 } : false
+                        color: { color: 'rgba(100,180,255,0.15)', highlight: '#00d2ff' },
+                        width: 1, shadow: false
                     });
                 });
             });
@@ -2243,7 +2243,12 @@
                         });
                     });
 
-                    if (aiStatus) aiStatus.innerHTML = `✅ AI自動配置完了（${activePlayerIds.length}名）`;
+                    // マンネリ指数を計算して表示
+                    let totalManneri = 0;
+                    teams.forEach(tm => totalManneri += calcTeamManneriPenalty(tm));
+                    const manneriPerTeam = (totalManneri / numTeams).toFixed(1);
+                    const manneriLabel = totalManneri === 0 ? '🟢 完璧（0）' : totalManneri < 5 ? `🟡 低 (${totalManneri})` : `🔴 高 (${totalManneri})`;
+                    if (aiStatus) aiStatus.innerHTML = `✅ AI自動配置完了（${activePlayerIds.length}名） ｜ 🔁 マンネリ指数: ${manneriLabel}（チーム平均 ${manneriPerTeam}）`;
                 } catch (err) {
                     console.error("AI Team Generation Error:", err);
                     alert("AI編成中にエラーが発生しました:\n" + err.message);
