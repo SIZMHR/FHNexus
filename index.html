@@ -167,7 +167,7 @@
             <span id="sp-load-badge" style="font-size:11px; color:#8b9bb4; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
             <details style="font-size:11px; color:#8b9bb4; cursor:pointer;">
                 <summary style="user-select:none;">📁 ローカル JSON 読込</summary>
-                <input type="file" id="file-input" accept=".json" style="max-width: 180px; margin-top:4px; font-size:11px;">
+                <input type="file" id="file-input" accept=".json,.gz,application/json,application/gzip" style="max-width: 180px; margin-top:4px; font-size:11px;">
             </details>
         </div>
     </header>
@@ -185,7 +185,8 @@
             <div id="network-wrapper">
                 <div id="initial-message">
                     <h2 style="color: #00d2ff; margin-bottom: 10px;">データを読み込んでください</h2>
-                    <p style="font-size: 13px;">画面上部の「📁 JSON読込」からファイルを選択するか、<br>この画面に JSON ファイルをドラッグ＆ドロップしてください。</p>
+                    <p style="font-size: 13px;">画面上部の「📁 JSON読込」からファイルを選択するか、<br>この画面に台帳ファイルをドラッグ＆ドロップしてください。</p>
+                    <p style="font-size: 11px; color:#6c7d93; margin-top:8px;">対応形式: <b>.json</b> / <b>.json.gz</b>（FlagHunt 台帳バックアップ）</p>
                 </div>
                 
                 <div id="network"></div>
@@ -232,7 +233,7 @@
                     </div>
                 </div>
                 
-                <div id="drop-zone">JSONをドロップ</div>
+                <div id="drop-zone">JSON / JSON.GZ をドロップ</div>
             </div>
         </div>
 
@@ -656,6 +657,157 @@
             }
         }
 
+        // ==========================================
+        // データ形式アダプタ（gzip 対応 ＋ 台帳バックアップ形式の変換）
+        // ==========================================
+
+        // .json / .json.gz どちらでも ArrayBuffer から JSON へ復元する
+        async function decodeDataFile(buffer, fileName) {
+            const bytes = new Uint8Array(buffer);
+            const isGzip = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+            let text;
+            if (isGzip) {
+                if (typeof DecompressionStream === 'undefined') {
+                    throw new Error('このブラウザは gzip 展開に対応していません。展開済みの .json を読み込んでください');
+                }
+                const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+                text = await new Response(stream).text();
+            } else {
+                text = new TextDecoder('utf-8').decode(bytes);
+            }
+            if (!text.trim()) throw new Error(`${fileName || 'ファイル'} が空です`);
+            return JSON.parse(text);
+        }
+
+        // 文字列として格納された JSON カラムを安全に展開
+        function parseJsonColumn(value, fallback) {
+            if (value === null || value === undefined) return fallback;
+            if (typeof value === 'object') return value;
+            try { return JSON.parse(value); } catch (e) { return fallback; }
+        }
+
+        // FlagHunt 同期バックアップ（tables 形式）を本アプリの解析用フォーマットへ変換
+        function convertFlagHuntBackup(tables) {
+            const alive = (rows) => (Array.isArray(rows) ? rows : []).filter(r => r && !r.deleted);
+
+            // --- イベント（開催日） ---
+            const events = alive(tables.events).map(ev => ({
+                id: ev.id,
+                date: ev.date || null,
+                name: ev.name || ''
+            }));
+            const eventDateMap = {};
+            events.forEach(ev => { eventDateMap[ev.id] = ev.date; });
+
+            // --- プレイヤー（削除済み行も名前解決用に参照） ---
+            const nameLookup = {};
+            (tables.players || []).forEach(p => { if (p && p.id) nameLookup[p.id] = p; });
+
+            const players = {};
+            const addPlayer = (pid) => {
+                if (players[pid]) return players[pid];
+                const src = nameLookup[pid] || {};
+                players[pid] = {
+                    playerId: pid,
+                    nick: src.nick || src.real_name || String(pid).substring(0, 8),
+                    realName: src.real_name || '',
+                    ratings: parseJsonColumn(src.ratings, {}),
+                    flagCount: 0,
+                    games: []
+                };
+                return players[pid];
+            };
+            alive(tables.players).forEach(p => { if (p.id) addPlayer(p.id); });
+
+            // --- 試合（確定済みのみ / 予定・プレースホルダ・巻き戻しは除外） ---
+            const matches = alive(tables.matches).filter(m =>
+                m.status === 'done' && !m.is_placeholder && !m.rolled_back_at
+            );
+
+            // 開催日 → 試合順(seq) で時系列に並べる（μ推移グラフの順序を正しくするため）
+            const sortKeyCache = {};
+            const sortKey = (m) => {
+                if (sortKeyCache[m.id] === undefined) {
+                    const d = eventDateMap[m.event_id] || '9999-99-99';
+                    const seq = String(m.seq !== null && m.seq !== undefined ? m.seq : 0).padStart(6, '0');
+                    sortKeyCache[m.id] = `${d}__${seq}__${m.id}`;
+                }
+                return sortKeyCache[m.id];
+            };
+            matches.sort((a, b) => {
+                const ka = sortKey(a), kb = sortKey(b);
+                return ka < kb ? -1 : (ka > kb ? 1 : 0);
+            });
+
+            let gameCount = 0;
+            matches.forEach(m => {
+                const sides = [parseJsonColumn(m.team1, null), parseJsonColumn(m.team2, null)];
+                if (!sides[0] || !sides[1]) return;
+                const eventDate = eventDateMap[m.event_id] || null;
+
+                sides.forEach((side, sideIdx) => {
+                    const sideName = side.name || side.teamCode || `TEAM${sideIdx + 1}`;
+                    // 同一試合内でチーム名が重複する場合のみサイド番号で区別する
+                    const otherName = (sides[1 - sideIdx] || {}).name;
+                    const teamKey = (otherName && otherName === side.name) ? `${sideName}#${sideIdx + 1}` : sideName;
+
+                    const won  = m.result_type === 'win' && m.winner === side.name;
+                    const lost = m.result_type === 'win' && m.loser === side.name;
+                    const draw = !!m.is_draw;
+
+                    (side.roster || []).forEach(entry => {
+                        if (!entry || !entry.playerId) return;
+                        const pl = addPlayer(entry.playerId);
+                        const gotFlag = (m.flag_getter_num !== null && m.flag_getter_num !== undefined)
+                            && m.flag_getter_team === side.name
+                            && m.flag_getter_num === entry.num;
+                        if (gotFlag) pl.flagCount++;
+                        pl.games.push({
+                            eventId: m.event_id,
+                            matchId: m.id,
+                            date: eventDate,
+                            label: m.label || null,
+                            myTeam: teamKey,
+                            teamName: sideName,
+                            bibNum: entry.num !== undefined ? entry.num : null,
+                            won: won,
+                            lost: lost,
+                            draw: draw,
+                            result: won ? 'win' : (lost ? 'loss' : (draw ? 'draw' : null)),
+                            gotFlag: gotFlag
+                        });
+                        gameCount++;
+                    });
+                });
+            });
+
+            const playersArr = Object.values(players);
+            console.log(`[backup変換] events=${events.length} players=${playersArr.length} matches=${matches.length} games=${gameCount}`);
+            return { events: events, players: playersArr, _sourceFormat: 'flaghunt-backup' };
+        }
+
+        // 読み込んだ JSON を解析用フォーマットへ正規化（既存フォーマットはそのまま通す）
+        function normalizeDataset(raw) {
+            if (!raw || typeof raw !== 'object') throw new Error('JSON の内容を解釈できませんでした');
+            if (raw.tables && (raw.tables.players || raw.tables.matches)) {
+                return convertFlagHuntBackup(raw.tables);
+            }
+            if (!raw.players) throw new Error('players が見つかりません。FlagHunt の台帳 JSON を読み込んでください');
+            return raw;
+        }
+
+        // 読込完了後の共通 UI 更新
+        function applyLoadedData() {
+            document.getElementById('initial-message').style.display = 'none';
+            document.getElementById('network-tools-bar').style.display = 'flex';
+            document.getElementById('legend-panel').style.display = 'block';
+            document.getElementById('info-panel').style.display = 'block';
+            document.getElementById('timeline-panel').style.display = 'flex';
+            initDateRange();
+            processDataAndRender();
+            updateTeamSelectCheckboxes(currentNodes ? currentNodes.get() : []);
+        }
+
         async function loadLatestJsonFromSharePoint() {
             const btn   = document.getElementById('btn-sp-load');
             const badge = document.getElementById('sp-load-badge');
@@ -715,10 +867,10 @@
 
                 const listData  = await listRes.json();
                 const jsonFiles = (listData.value || [])
-                    .filter(f => f.name && f.name.toLowerCase().endsWith('.json'))
+                    .filter(f => f.name && /\.json(\.gz)?$/i.test(f.name))
                     .sort((a, b) => new Date(b.lastModifiedDateTime) - new Date(a.lastModifiedDateTime));
 
-                if (jsonFiles.length === 0) throw new Error('json フォルダに JSON ファイルが見つかりません');
+                if (jsonFiles.length === 0) throw new Error('json フォルダに JSON (.json / .json.gz) ファイルが見つかりません');
 
                 const latest   = jsonFiles[0];
                 const fileDate = new Date(latest.lastModifiedDateTime).toLocaleString('ja-JP');
@@ -740,19 +892,13 @@
                 } : {});
                 if (!fileRes.ok) throw new Error(`ダウンロード失敗 (${fileRes.status})`);
 
-                const jsonText = await fileRes.text();
-                console.log("Downloaded content (first 200 chars):", jsonText.substring(0, 200));
-                rawJsonData = JSON.parse(jsonText);
+                const buffer = await fileRes.arrayBuffer();
+                console.log(`Downloaded ${latest.name} (${buffer.byteLength} bytes)`);
+                if (badge) badge.textContent = 'データ変換中...';
+                rawJsonData = normalizeDataset(await decodeDataFile(buffer, latest.name));
 
                 // 通常の JSON 読込と同じ処理
-                document.getElementById('initial-message').style.display = 'none';
-                document.getElementById('network-tools-bar').style.display = 'flex';
-                document.getElementById('legend-panel').style.display = 'block';
-                document.getElementById('info-panel').style.display = 'block';
-                document.getElementById('timeline-panel').style.display = 'flex';
-                initDateRange();
-                processDataAndRender();
-                updateTeamSelectCheckboxes(currentNodes ? currentNodes.get() : []);
+                applyLoadedData();
 
                 if (badge) { badge.style.color = '#06d6a0'; badge.textContent = `✅ ${latest.name}`; badge.title = `更新: ${fileDate}`; }
                 btn.innerHTML = '🔄 再読込';
@@ -885,7 +1031,7 @@
             { name: 'ホワイト', hex: '#FFFFFF' }
         ];
 
-        let globalMatchTeams = {}; let globalTeammateCounts = {}; let globalPlayerNames = {};      
+        let globalMatchTeams = {}; let globalTeammateCounts = {}; let globalOpponentCounts = {}; let globalPlayerNames = {};      
         let globalPlayerHtmlNames = {}; let globalPlayerRatings = {}; let globalPlayerFlagCounts = {}; 
         let globalPlayerLastDate = {}; let playerRawGames = {}; 
         
@@ -1040,24 +1186,20 @@
             if (e.dataTransfer.files.length > 0) loadJsonFile(e.dataTransfer.files[0]);
         });
 
-        function loadJsonFile(file) {
+        async function loadJsonFile(file) {
             if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    rawJsonData = JSON.parse(e.target.result);
-                    document.getElementById('initial-message').style.display = 'none';
-                    document.getElementById('network-tools-bar').style.display = 'flex';
-                    document.getElementById('legend-panel').style.display = 'block';
-                    document.getElementById('info-panel').style.display = 'block';
-                    document.getElementById('timeline-panel').style.display = 'flex';
-                    initDateRange();
-                    processDataAndRender();
-                    const nodes = currentNodes ? currentNodes.get() : [];
-                    updateTeamSelectCheckboxes(nodes);
-                } catch (err) { alert('データ処理エラー:\n' + err.message); }
-            };
-            reader.readAsText(file);
+            const badge = document.getElementById('sp-load-badge');
+            try {
+                if (badge) { badge.style.color = '#8b9bb4'; badge.textContent = `⌛ ${file.name} を読込中...`; }
+                const buffer = await file.arrayBuffer();
+                rawJsonData = normalizeDataset(await decodeDataFile(buffer, file.name));
+                applyLoadedData();
+                if (badge) { badge.style.color = '#06d6a0'; badge.textContent = `✅ ${file.name}`; }
+            } catch (err) {
+                console.error('ファイル読込エラー:', err);
+                if (badge) { badge.style.color = '#ff4d6d'; badge.textContent = `❌ ${err.message}`; }
+                alert('データ処理エラー:\n' + err.message);
+            }
         }
 
         function initDateRange() {
@@ -1256,7 +1398,9 @@
             if(!network && typeof vis !== 'undefined') {
                 network = new vis.Network(document.getElementById('network'), { nodes: currentNodes, edges: currentEdges }, {
                     nodes: { shape: 'dot', scaling: { min: 10, max: 40, label: {enabled: true, min:10, max:20} }, borderWidth: 1.5 },
-                    edges: { smooth: { type: 'continuous' } }, physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -30 } }
+                    edges: { smooth: { type: 'continuous' } }, physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -30 } },
+                    // 200人規模では improvedLayout が無効化される（vis.js の警告）ため明示的に切って初期描画を軽くする
+                    layout: { improvedLayout: false }
                 });
                 network.on('click', (p) => { if(p.nodes.length) updateInfo(p.nodes[0]); });
             }
@@ -1419,7 +1563,9 @@
                 games.forEach(g => {
                     if (g.won || g.result === 'win') winCount++;
                     if (g.gotFlag) flagCount++;
-                    const mKey = `${g.eventId||'ev'}_${g.matchId||'m'}`;
+                    const evKey = g.eventId || g.date || 'ev';
+                    const mIdKey = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
+                    const mKey = `${evKey}__${mIdKey}`;
                     const matchInfo = globalMatchTeams[mKey];
                     if (matchInfo) {
                         const myTeamMates = matchInfo[g.myTeam] || [];
