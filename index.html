@@ -2039,7 +2039,7 @@
                 });
                 
                 if (games.length > 0) {
-                    const st = { id: id, skillMu: getRating(id).mu, flagPerGame: flagCount / games.length, winRate: winCount / games.length, uniqueAllies: allies.size, uniqueEnemies: enemies.size, certaintyScore: certainty };
+                    const st = { id: id, skillOrdinal: getRating(id).ordinal, flagPerGame: flagCount / games.length, winRate: winCount / games.length, uniqueAllies: allies.size, uniqueEnemies: enemies.size, certaintyScore: certainty };
                     validStats.push(st); statsMap[id] = st;
                 }
             });
@@ -2053,7 +2053,7 @@
             };
 
             // ラベルと同じ並び順で保つこと
-            const statsKeys = ['skillMu', 'flagPerGame', 'winRate', 'uniqueAllies', 'certaintyScore', 'uniqueEnemies'];
+            const statsKeys = ['skillOrdinal', 'flagPerGame', 'winRate', 'uniqueAllies', 'certaintyScore', 'uniqueEnemies'];
             const statMetrics = {}; statsKeys.forEach(key => { statMetrics[key] = calcMeanAndStdDev(key); });
 
             const mySt = statsMap[pid];
@@ -2068,7 +2068,7 @@
             radarChartObj = new Chart(document.getElementById('radarChart').getContext('2d'), {
                 type: 'radar',
                 data: {
-                    labels: ['実力(μ)', '攻撃力(F/G)', '勝率', '味方バラエティ', '評価の確度', '敵バラエティ'],
+                    labels: ['実力(μ-3σ)', '攻撃力(F/G)', '勝率', '味方バラエティ', '評価の確度', '敵バラエティ'],
                     datasets: [{ label: '偏差値', data: radarData, backgroundColor: 'rgba(6, 214, 160, 0.4)', borderColor: '#06d6a0', pointBackgroundColor: '#06d6a0', pointRadius: 4, borderWidth: 2 }]
                 },
                 options: {
