@@ -8,6 +8,8 @@
     <script src="https://res.cdn.office.net/teams-js/2.22.0/js/MicrosoftTeams.min.js"></script>
     <!-- MSAL.js (Microsoft Graph API 認証 - ローカルホスト版) -->
     <script src="/msal-browser.min.js"></script>
+    <!-- OpenSkill (Weng-Lin ベイズ推定) を自己完結バンドルで同梱。window.OpenSkill を生やす -->
+    <script src="/openskill.bundle.js"></script>
     <!-- Graph & Chart Libraries -->
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -506,7 +508,7 @@
                         <div style="flex:1; position:relative;"><canvas id="radarChart"></canvas></div>
                     </div>
                     <div style="flex: 1.5; min-width: 280px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display:flex; flex-direction:column; min-height: 250px;">
-                        <h3 style="color:#00d2ff; font-size:13px; text-align:center; margin-bottom:5px;">実力(μ)・安定度(σ) 推移</h3>
+                        <h3 style="color:#00d2ff; font-size:13px; text-align:center; margin-bottom:5px;">実力(μ)・評価の確度(σ) 推移</h3>
                         <div style="flex:1; position:relative;"><canvas id="lineChart"></canvas></div>
                     </div>
                 </div>
@@ -708,6 +710,133 @@
                 }
                 return popupRes.accessToken;
             }
+        }
+
+        // ==========================================
+        // レーティング計算（OpenSkill / Weng-Lin ベイズ推定）
+        // ==========================================
+        // 旧実装は「勝ち+0.8 / 負け-0.6 / 引分+0.1」の累積で、ゼロ和ではないため
+        // 勝率36%を超える全員のμが無限に増え続け、実力ではなく出場回数を測っていた。
+        // ここでは試合単位で OpenSkill を回し、μ(実力) と σ(推定の不確実性) を得る。
+
+        const RATING_DEFAULTS = { mu: 25, sigma: 25 / 3 };
+        // predictWin を表示に使う場合の β。既定値(25/6)のままだと自信過剰になり
+        // 実データのバックテストで logloss がコイン投げより悪化したため分けている。
+        const RATING_DISPLAY_BETA = 50;
+
+        // pid -> { mu, sigma, ordinal, games, history:[{mu,sigma,...}] }
+        let playerRatings = {};
+        let ratingScale = { mean: 0, sd: 1 };   // 実力指数（偏差値）変換用
+        const PROVISIONAL_GAMES = 30;           // これ未満は「暫定」扱い
+
+        function osAvailable() {
+            return typeof OpenSkill !== 'undefined' && OpenSkill && typeof OpenSkill.rate === 'function';
+        }
+
+        // 時系列に並べた試合リストから全員のレートを計算する
+        // matches: [{ key, sortKey, teams: { teamId: [pid...] }, wonTeam, isDraw }]
+        function computeRatings(matches) {
+            playerRatings = {};
+            if (!osAvailable()) {
+                console.warn('OpenSkill が読み込まれていません。レート計算をスキップします。');
+                return playerRatings;
+            }
+
+            const get = (pid) => {
+                if (!playerRatings[pid]) {
+                    playerRatings[pid] = {
+                        mu: RATING_DEFAULTS.mu, sigma: RATING_DEFAULTS.sigma,
+                        ordinal: 0, games: 0, wins: 0, flags: 0, history: []
+                    };
+                }
+                return playerRatings[pid];
+            };
+
+            matches.forEach(m => {
+                const teamIds = Object.keys(m.teams);
+                // 2チーム対戦のみ対象（1チームしか居ない不完全データは飛ばす）
+                if (teamIds.length < 2) return;
+
+                const rosters = teamIds.map(tid => m.teams[tid]);
+                if (rosters.some(r => !r.length)) return;
+
+                const osTeams = rosters.map(r => r.map(pid => {
+                    const st = get(pid);
+                    return { mu: st.mu, sigma: st.sigma };
+                }));
+
+                // rank は小さいほど上位。引き分けは同順位。
+                const rank = teamIds.map(tid => {
+                    if (m.isDraw || !m.wonTeam) return 1;
+                    return tid === m.wonTeam ? 1 : 2;
+                });
+
+                let updated;
+                try {
+                    updated = OpenSkill.rate(osTeams, { rank: rank });
+                } catch (e) {
+                    console.warn('OpenSkill.rate に失敗:', e);
+                    return;
+                }
+
+                updated.forEach((team, ti) => {
+                    team.forEach((r, pi) => {
+                        const pid = rosters[ti][pi];
+                        const st = get(pid);
+                        st.mu = r.mu;
+                        st.sigma = r.sigma;
+                        st.games++;
+                        if (!m.isDraw && m.wonTeam === teamIds[ti]) st.wins++;
+                        st.history.push({ mu: r.mu, sigma: r.sigma, date: m.date || null, key: m.key });
+                    });
+                });
+            });
+
+            // ordinal（μ-3σ）と、表示用スケールを確定
+            const ords = [];
+            Object.values(playerRatings).forEach(st => {
+                st.ordinal = OpenSkill.ordinal({ mu: st.mu, sigma: st.sigma });
+                if (st.games > 0) ords.push(st.ordinal);
+            });
+            if (ords.length > 1) {
+                const mean = ords.reduce((a, b) => a + b, 0) / ords.length;
+                const sd = Math.sqrt(ords.reduce((a, b) => a + (b - mean) ** 2, 0) / ords.length) || 1;
+                ratingScale = { mean: mean, sd: sd };
+            } else {
+                ratingScale = { mean: 0, sd: 1 };
+            }
+            return playerRatings;
+        }
+
+        function getRating(pid) {
+            return playerRatings[pid] || {
+                mu: RATING_DEFAULTS.mu, sigma: RATING_DEFAULTS.sigma,
+                ordinal: 0, games: 0, wins: 0, flags: 0, history: []
+            };
+        }
+
+        // 実力指数: ordinal を偏差値（平均50 / 1σ=10）に変換した表示用の数値
+        function skillIndex(pid) {
+            const st = getRating(pid);
+            if (!st.games) return 50;
+            return Math.round(50 + (st.ordinal - ratingScale.mean) / ratingScale.sd * 10);
+        }
+
+        // 評価の確度: σ が初期値からどれだけ縮んだか（0-100%）
+        // ※「安定度（ムラのなさ）」ではない。σ は出場試合数とほぼ連動する量。
+        function certaintyScore(pid) {
+            const st = getRating(pid);
+            return Math.max(0, Math.min(100, (1 - st.sigma / RATING_DEFAULTS.sigma) * 100));
+        }
+
+        function isProvisional(pid) {
+            return getRating(pid).games < PROVISIONAL_GAMES;
+        }
+
+        function provisionalBadge(pid) {
+            return isProvisional(pid)
+                ? ` <span style="font-size:10px; background:#3b486b; color:#ffbe0b; padding:1px 5px; border-radius:4px; vertical-align:middle;">暫定</span>`
+                : '';
         }
 
         // ==========================================
@@ -1559,17 +1688,42 @@
                     const mKey = `${evId}__${mId}`;
                     const teamId = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam : (g.team !== undefined ? g.team : 'team_0'));
 
-                    if (!matchGroup[mKey]) matchGroup[mKey] = { teams: {}, wonTeam: null };
+                    if (!matchGroup[mKey]) matchGroup[mKey] = { key: mKey, teams: {}, wonTeam: null, isDraw: false, date: g.date || eventDateMap[g.eventId] || null };
                     if (!matchGroup[mKey].teams[teamId]) matchGroup[mKey].teams[teamId] = new Set();
                     matchGroup[mKey].teams[teamId].add(pid);
 
                     if (g.won || g.result === 'win') matchGroup[mKey].wonTeam = teamId;
+                    if (g.draw || g.result === 'draw') matchGroup[mKey].isDraw = true;
 
                     // globalMatchTeams も Set から配列にして保存（後方互換）
                     if (!globalMatchTeams[mKey]) globalMatchTeams[mKey] = {};
                     if (!globalMatchTeams[mKey][teamId]) globalMatchTeams[mKey][teamId] = [];
                     if (!globalMatchTeams[mKey][teamId].includes(pid)) globalMatchTeams[mKey][teamId].push(pid);
                 });
+            });
+
+            // ---- レーティング計算（OpenSkill）----
+            // 試合を時系列に並べ直してから順に評価する。日付が同じ場合は
+            // アダプタが積んだ順（= seq 順）を保つため初出インデックスで安定ソートする。
+            const orderedMatches = Object.values(matchGroup).map((m, idx) => ({
+                key: m.key,
+                date: m.date,
+                isDraw: m.isDraw,
+                wonTeam: m.wonTeam,
+                _idx: idx,
+                teams: Object.fromEntries(Object.entries(m.teams).map(([tid, set]) => [tid, Array.from(set)]))
+            }));
+            orderedMatches.sort((a, b) => {
+                const da = a.date || '9999-99-99', db = b.date || '9999-99-99';
+                if (da !== db) return da < db ? -1 : 1;
+                return a._idx - b._idx;
+            });
+            computeRatings(orderedMatches);
+
+            // 情報パネル等が参照する μ を計算済みレートで上書きする
+            // （台帳の ratings カラムは空のため、従来は全員 25.0 が表示されていた）
+            Object.keys(playerRatings).forEach(pid => {
+                globalPlayerRatings[pid] = playerRatings[pid].mu;
             });
 
             // 試合データから共闘（同一チーム）と対戦（敵チーム）を1対1で整合集計
@@ -1820,7 +1974,8 @@
         function updateInfo(pid) {
             const node = currentNodes.get(pid);
             if(!node) return;
-            const ratingMu = (globalPlayerRatings[pid] !== undefined) ? globalPlayerRatings[pid].toFixed(2) : "不明";
+            const rt = getRating(pid);
+            const ratingMu = rt.games ? rt.mu.toFixed(2) : "不明";
             const flagCount = globalPlayerFlagCounts[pid] !== undefined ? globalPlayerFlagCounts[pid] : 0;
             
             // 未共闘ライバルのトップ候補
@@ -1833,7 +1988,9 @@
 
             document.getElementById('info-name').innerHTML = `${globalPlayerHtmlNames[pid]} <span class="badge" style="font-size:12px; font-weight:normal; margin-left:8px;">${node.value}人と共闘</span>`;
             document.getElementById('info-details').innerHTML = `
-                <div style="color:#ffd700; margin-bottom:5px;">• <b>強さ(μ)</b>: ${ratingMu}</div>
+                <div style="color:#ffd700; margin-bottom:5px;">• <b>実力指数</b>: ${rt.games ? skillIndex(pid) : '—'}${provisionalBadge(pid)}
+                    <span style="font-size:11px; color:#8b9bb4;">（平均50・±10で1段階）</span></div>
+                <div style="color:#8b9bb4; margin-bottom:5px; font-size:11px;">　μ ${ratingMu} ± σ ${rt.games ? rt.sigma.toFixed(2) : '—'} ／ 評価の確度 ${rt.games ? Math.round(certaintyScore(pid)) + '%' : '—'}（${rt.games}試合）</div>
                 <div style="color:#ff4d6d; margin-bottom:5px;">• <b>フラッグ数</b>: ${flagCount}</div>
                 <div>• <b>指定期間の出場数</b>: ${node.rawGames} 試合</div>
                 <div style="margin-top:8px; color:#8b9bb4;">よく組む相手:</div>
@@ -1859,13 +2016,8 @@
             
             allPids.forEach(id => {
                 let games = playerRawGames[id] || [];
-                let mu = 25.0; let sigma = 8.33;
-                games.forEach(g => {
-                    if (g.won || g.result === 'win') mu += 0.8; else if (g.lost || g.result === 'loss') mu -= 0.6; else mu += 0.1;
-                    if (g.gotFlag) mu += 0.4;
-                    sigma = Math.max(2.0, sigma - 0.1);
-                });
-                let consistencyScore = Math.max(0, 100 - (sigma / 8.33 * 100));
+                // σ は OpenSkill が返す推定の不確実性。小さいほど評価が固まっている。
+                const certainty = certaintyScore(id);
                 
                 if (N > 0 && games.length > N) games = games.slice(-N);
                 
@@ -1887,7 +2039,7 @@
                 });
                 
                 if (games.length > 0) {
-                    const st = { id: id, flagPerGame: flagCount / games.length, winRate: winCount / games.length, uniqueAllies: allies.size, uniqueEnemies: enemies.size, consistencyScore: consistencyScore };
+                    const st = { id: id, flagPerGame: flagCount / games.length, winRate: winCount / games.length, uniqueAllies: allies.size, uniqueEnemies: enemies.size, certaintyScore: certainty };
                     validStats.push(st); statsMap[id] = st;
                 }
             });
@@ -1900,7 +2052,7 @@
                 return { mean, stdDev: Math.sqrt(variance) || 1 }; 
             };
 
-            const statsKeys = ['flagPerGame', 'winRate', 'uniqueAllies', 'consistencyScore', 'uniqueEnemies'];
+            const statsKeys = ['flagPerGame', 'winRate', 'uniqueAllies', 'certaintyScore', 'uniqueEnemies'];
             const statMetrics = {}; statsKeys.forEach(key => { statMetrics[key] = calcMeanAndStdDev(key); });
 
             const mySt = statsMap[pid];
@@ -1915,7 +2067,7 @@
             radarChartObj = new Chart(document.getElementById('radarChart').getContext('2d'), {
                 type: 'radar',
                 data: {
-                    labels: ['攻撃力(F/G)', '勝率', '味方バラエティ', '安定度(σ)', '敵バラエティ'],
+                    labels: ['攻撃力(F/G)', '勝率', '味方バラエティ', '評価の確度', '敵バラエティ'],
                     datasets: [{ label: '偏差値', data: radarData, backgroundColor: 'rgba(6, 214, 160, 0.4)', borderColor: '#06d6a0', pointBackgroundColor: '#06d6a0', pointRadius: 4, borderWidth: 2 }]
                 },
                 options: {
@@ -1925,15 +2077,16 @@
                 }
             });
             
-            let history = []; let mu_hist = 25.0; let sigma_hist = 8.33;
-            let p_games = playerRawGames[pid] || [];
-            p_games.forEach((g, idx) => {
-                if (g.won || g.result === 'win') mu_hist += 0.8; else if (g.lost || g.result === 'loss') mu_hist -= 0.6; else mu_hist += 0.1;
-                if (g.gotFlag) mu_hist += 0.4;
-                sigma_hist = Math.max(2.0, sigma_hist - 0.1);
-                let dLabel = g.date ? String(g.date).substring(0,10) : `G${idx+1}`;
-                history.push({ idx: idx + 1, dateLabel: dLabel, mu: mu_hist, sigma: sigma_hist, gotFlag: !!g.gotFlag });
-            });
+            // OpenSkill が試合ごとに返した μ / σ をそのまま描く（旧実装の累積加算は撤去）
+            const p_games = playerRawGames[pid] || [];
+            const rtHist = getRating(pid).history || [];
+            let history = rtHist.map((h, idx) => ({
+                idx: idx + 1,
+                dateLabel: h.date ? String(h.date).substring(0, 10) : `G${idx + 1}`,
+                mu: h.mu,
+                sigma: h.sigma,
+                gotFlag: !!(p_games[idx] && p_games[idx].gotFlag)
+            }));
             
             if (N > 0 && history.length > N) history = history.slice(-N);
             
@@ -2130,15 +2283,17 @@
 
         function getPlayerRollingStats(pid, rollingWindow) {
             let games = playerRawGames[pid] || [];
-            if (rollingWindow > 0 && games.length > rollingWindow) games = games.slice(-rollingWindow); 
-            let flags = 0; let mu = 25.0;
-            if (games.length === 0 && pid.includes("(guest")) { mu = globalPlayerRatings[pid] || 15.0; } 
-            else {
-                games.forEach(g => {
-                    if (g.won || g.result === 'win') mu += 0.8; else if (g.lost || g.result === 'loss') mu -= 0.6; else mu += 0.1;
-                    if (g.gotFlag) { flags++; mu += 0.4; }
-                });
-            }
+            if (rollingWindow > 0 && games.length > rollingWindow) games = games.slice(-rollingWindow);
+
+            // フラッグ数は従来どおり直近N試合で数える
+            let flags = 0;
+            games.forEach(g => { if (g.gotFlag) flags++; });
+
+            // 実力は OpenSkill の μ を使う。μ は日付範囲で絞った全試合から
+            // 算出されるため、直近N試合スライダーの影響は受けない。
+            const rt = getRating(pid);
+            let mu = rt.games ? rt.mu : RATING_DEFAULTS.mu;
+            if (!rt.games && String(pid).includes("guest")) mu = globalPlayerRatings[pid] || RATING_DEFAULTS.mu;
             return { mu: mu, flags: flags };
         }
 
