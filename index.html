@@ -8,6 +8,8 @@
     <script src="https://res.cdn.office.net/teams-js/2.22.0/js/MicrosoftTeams.min.js"></script>
     <!-- MSAL.js (Microsoft Graph API 認証 - ローカルホスト版) -->
     <script src="/msal-browser.min.js"></script>
+    <!-- OpenSkill (Weng-Lin ベイズ推定) を自己完結バンドルで同梱。window.OpenSkill を生やす -->
+    <script src="/openskill.bundle.js"></script>
     <!-- Graph & Chart Libraries -->
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -28,6 +30,41 @@
         body.teams-contrast { background-color: #000000; color: #ffffff; }
         body.teams-contrast header, body.teams-contrast .tabs-container { background: #000000; border-bottom: 2px solid #ffff00; }
         body.teams-contrast .tab-btn.active { color: #ffff00; border-bottom-color: #ffff00; }
+
+
+        /* --- 読込オーバーレイ --- */
+        #loading-overlay { position: fixed; inset: 0; z-index: 9999; display: none; justify-content: center; align-items: center; background: rgba(8, 11, 19, 0.92); backdrop-filter: blur(6px); }
+        #loading-overlay.show { display: flex; }
+        .loading-card { width: 92%; max-width: 460px; background: linear-gradient(180deg, #151c2c 0%, #101725 100%); border: 1px solid #2a334a; border-radius: 16px; padding: 26px 24px 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+        .loading-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+        .loading-spinner { width: 26px; height: 26px; flex: 0 0 26px; border: 3px solid rgba(0, 210, 255, 0.18); border-top-color: #00d2ff; border-radius: 50%; animation: fh-spin 0.9s linear infinite; }
+        @keyframes fh-spin { to { transform: rotate(360deg); } }
+        .loading-title { font-size: 16px; font-weight: 700; color: #ffffff; }
+        .loading-elapsed { margin-left: auto; font-size: 12px; color: #8b9bb4; font-variant-numeric: tabular-nums; }
+        .loading-sub { font-size: 12px; color: #8b9bb4; margin: 2px 0 16px 38px; min-height: 16px; }
+
+        .loading-bar { height: 8px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; margin-bottom: 6px; }
+        .loading-bar-fill { height: 100%; width: 0%; border-radius: 99px; background: linear-gradient(90deg, #00d2ff, #06d6a0); transition: width 0.25s ease; }
+        .loading-bar.indeterminate .loading-bar-fill { width: 35%; animation: fh-slide 1.1s ease-in-out infinite; }
+        @keyframes fh-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+        .loading-pct { font-size: 11px; color: #6c7d93; text-align: right; font-variant-numeric: tabular-nums; margin-bottom: 14px; min-height: 14px; }
+
+        .loading-steps { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+        .loading-step { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: #4d5b73; transition: color 0.2s; }
+        .loading-step .st-icon { width: 18px; flex: 0 0 18px; text-align: center; font-size: 12px; }
+        .loading-step .st-detail { margin-left: auto; font-size: 11px; color: #6c7d93; font-variant-numeric: tabular-nums; }
+        .loading-step.active { color: #00d2ff; font-weight: 600; }
+        .loading-step.done { color: #8b9bb4; }
+        .loading-step.error { color: #ff4d6d; }
+
+        .loading-tip { border-top: 1px solid #232c40; padding-top: 12px; font-size: 12px; color: #8b9bb4; line-height: 1.6; min-height: 40px; }
+        .loading-tip b { color: #ffd700; }
+        .loading-cancel { display: block; margin: 14px auto 0; background: none; border: 1px solid #3b486b; color: #6c7d93; font-size: 11px; font-weight: normal; padding: 5px 14px; }
+        .loading-cancel:hover { background: rgba(255,255,255,0.05); color: #e0e6ed; }
+
+        body.teams-light #loading-overlay { background: rgba(243, 242, 241, 0.92); }
+        body.teams-light .loading-card { background: #ffffff; border-color: #e1dfdd; }
+        body.teams-light .loading-title { color: #252423; }
 
         /* --- Header & Tabs --- */
         header { background: rgba(20, 26, 40, 0.95); padding: 10px 15px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a334a; z-index: 10; gap: 10px; }
@@ -160,6 +197,24 @@
     </style>
 </head>
 <body>
+    <div id="loading-overlay">
+        <div class="loading-card">
+            <div class="loading-head">
+                <div class="loading-spinner"></div>
+                <div class="loading-title" id="loading-title">データを読み込んでいます</div>
+                <div class="loading-elapsed" id="loading-elapsed">0.0秒</div>
+            </div>
+            <div class="loading-sub" id="loading-sub">準備中...</div>
+
+            <div class="loading-bar indeterminate" id="loading-bar"><div class="loading-bar-fill" id="loading-bar-fill"></div></div>
+            <div class="loading-pct" id="loading-pct"></div>
+
+            <div class="loading-steps" id="loading-steps"></div>
+
+            <div class="loading-tip" id="loading-tip"></div>
+            <button class="loading-cancel" id="loading-cancel" type="button">閉じる</button>
+        </div>
+    </div>
     <header>
         <h1>🚩 FLAGHUNT Nexus <span class="header-badge" id="env-badge">Standalone / Teams</span></h1>
         <div class="header-controls">
@@ -453,7 +508,7 @@
                         <div style="flex:1; position:relative;"><canvas id="radarChart"></canvas></div>
                     </div>
                     <div style="flex: 1.5; min-width: 280px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display:flex; flex-direction:column; min-height: 250px;">
-                        <h3 style="color:#00d2ff; font-size:13px; text-align:center; margin-bottom:5px;">実力(μ)・安定度(σ) 推移</h3>
+                        <h3 style="color:#00d2ff; font-size:13px; text-align:center; margin-bottom:5px;">実力(μ)・評価の確度(σ) 推移</h3>
                         <div style="flex:1; position:relative;"><canvas id="lineChart"></canvas></div>
                     </div>
                 </div>
@@ -658,6 +713,304 @@
         }
 
         // ==========================================
+        // レーティング計算（OpenSkill / Weng-Lin ベイズ推定）
+        // ==========================================
+        // 旧実装は「勝ち+0.8 / 負け-0.6 / 引分+0.1」の累積で、ゼロ和ではないため
+        // 勝率36%を超える全員のμが無限に増え続け、実力ではなく出場回数を測っていた。
+        // ここでは試合単位で OpenSkill を回し、μ(実力) と σ(推定の不確実性) を得る。
+
+        const RATING_DEFAULTS = { mu: 25, sigma: 25 / 3 };
+        // predictWin を表示に使う場合の β。既定値(25/6)のままだと自信過剰になり
+        // 実データのバックテストで logloss がコイン投げより悪化したため分けている。
+        const RATING_DISPLAY_BETA = 50;
+
+        // pid -> { mu, sigma, ordinal, games, history:[{mu,sigma,...}] }
+        let playerRatings = {};
+        let ratingScale = { mean: 0, sd: 1 };   // 実力指数（偏差値）変換用
+        const PROVISIONAL_GAMES = 30;           // これ未満は「暫定」扱い
+
+        function osAvailable() {
+            return typeof OpenSkill !== 'undefined' && OpenSkill && typeof OpenSkill.rate === 'function';
+        }
+
+        // 時系列に並べた試合リストから全員のレートを計算する
+        // matches: [{ key, sortKey, teams: { teamId: [pid...] }, wonTeam, isDraw }]
+        function computeRatings(matches) {
+            playerRatings = {};
+            if (!osAvailable()) {
+                console.warn('OpenSkill が読み込まれていません。レート計算をスキップします。');
+                return playerRatings;
+            }
+
+            const get = (pid) => {
+                if (!playerRatings[pid]) {
+                    playerRatings[pid] = {
+                        mu: RATING_DEFAULTS.mu, sigma: RATING_DEFAULTS.sigma,
+                        ordinal: 0, games: 0, wins: 0, flags: 0, history: []
+                    };
+                }
+                return playerRatings[pid];
+            };
+
+            matches.forEach(m => {
+                const teamIds = Object.keys(m.teams);
+                // 2チーム対戦のみ対象（1チームしか居ない不完全データは飛ばす）
+                if (teamIds.length < 2) return;
+
+                const rosters = teamIds.map(tid => m.teams[tid]);
+                if (rosters.some(r => !r.length)) return;
+
+                const osTeams = rosters.map(r => r.map(pid => {
+                    const st = get(pid);
+                    return { mu: st.mu, sigma: st.sigma };
+                }));
+
+                // rank は小さいほど上位。引き分けは同順位。
+                const rank = teamIds.map(tid => {
+                    if (m.isDraw || !m.wonTeam) return 1;
+                    return tid === m.wonTeam ? 1 : 2;
+                });
+
+                let updated;
+                try {
+                    updated = OpenSkill.rate(osTeams, { rank: rank });
+                } catch (e) {
+                    console.warn('OpenSkill.rate に失敗:', e);
+                    return;
+                }
+
+                updated.forEach((team, ti) => {
+                    team.forEach((r, pi) => {
+                        const pid = rosters[ti][pi];
+                        const st = get(pid);
+                        st.mu = r.mu;
+                        st.sigma = r.sigma;
+                        st.games++;
+                        if (!m.isDraw && m.wonTeam === teamIds[ti]) st.wins++;
+                        st.history.push({ mu: r.mu, sigma: r.sigma, date: m.date || null, key: m.key });
+                    });
+                });
+            });
+
+            // ordinal（μ-3σ）と、表示用スケールを確定
+            const ords = [];
+            Object.values(playerRatings).forEach(st => {
+                st.ordinal = OpenSkill.ordinal({ mu: st.mu, sigma: st.sigma });
+                if (st.games > 0) ords.push(st.ordinal);
+            });
+            if (ords.length > 1) {
+                const mean = ords.reduce((a, b) => a + b, 0) / ords.length;
+                const sd = Math.sqrt(ords.reduce((a, b) => a + (b - mean) ** 2, 0) / ords.length) || 1;
+                ratingScale = { mean: mean, sd: sd };
+            } else {
+                ratingScale = { mean: 0, sd: 1 };
+            }
+            return playerRatings;
+        }
+
+        function getRating(pid) {
+            return playerRatings[pid] || {
+                mu: RATING_DEFAULTS.mu, sigma: RATING_DEFAULTS.sigma,
+                ordinal: 0, games: 0, wins: 0, flags: 0, history: []
+            };
+        }
+
+        // 実力指数: ordinal を偏差値（平均50 / 1σ=10）に変換した表示用の数値
+        function skillIndex(pid) {
+            const st = getRating(pid);
+            if (!st.games) return 50;
+            return Math.round(50 + (st.ordinal - ratingScale.mean) / ratingScale.sd * 10);
+        }
+
+        // 評価の確度: σ が初期値からどれだけ縮んだか（0-100%）
+        // ※「安定度（ムラのなさ）」ではない。σ は出場試合数とほぼ連動する量。
+        function certaintyScore(pid) {
+            const st = getRating(pid);
+            return Math.max(0, Math.min(100, (1 - st.sigma / RATING_DEFAULTS.sigma) * 100));
+        }
+
+        function isProvisional(pid) {
+            return getRating(pid).games < PROVISIONAL_GAMES;
+        }
+
+        function provisionalBadge(pid) {
+            return isProvisional(pid)
+                ? ` <span style="font-size:10px; background:#3b486b; color:#ffbe0b; padding:1px 5px; border-radius:4px; vertical-align:middle;">暫定</span>`
+                : '';
+        }
+
+        // ==========================================
+        // 読込オーバーレイ（進捗表示）
+        // ==========================================
+        const Loader = (() => {
+            const el = {};
+            const STEPS = [
+                { key: 'auth',      label: '① Microsoft 認証' },
+                { key: 'locate',    label: '② 最新ファイルを検索' },
+                { key: 'download',  label: '③ 台帳をダウンロード' },
+                { key: 'convert',   label: '④ 戦績データを変換' },
+                { key: 'layout',    label: '⑤ 相関ネットワークを描画' }
+            ];
+            // 待ち時間に読ませる豆知識（飽きさせないため順番に切り替える）
+            const TIPS = [
+                '線の太さは <b>共闘した回数</b>。太いほど何度も同じチームで戦った相手です。',
+                '丸の大きさは <b>一緒に戦った人数</b>。大きいほど多くのメンバーと組んでいます。',
+                'ネットワーク上の名前をタップすると、その人の <b>個別分析グラフ</b> が開きます。',
+                '個別分析の「🤝 未共闘の注目ライバル」は、<b>よく対戦するのにまだ味方になっていない</b> 相手です。',
+                '「チーム生成」タブの <b>マンネリ指数</b> は、同じ顔ぶれの重なり具合を表します。低いほど新鮮な組み合わせです。',
+                'チーム編成は <b>焼きなまし法</b> で5万回の組み替えを試し、実力・フラッグ・マンネリのバランスを取っています。',
+                '上部の日付範囲を変えると、<b>その期間だけ</b> の相関を見られます。',
+                'μ（ミュー）は戦績から推定した強さの指標。勝つと上がり、負けると下がります。'
+            ];
+
+            let startedAt = 0, timerId = null, tipId = null, tipIdx = 0, active = false;
+
+            function ensure() {
+                if (el.overlay) return;
+                el.overlay  = document.getElementById('loading-overlay');
+                el.title    = document.getElementById('loading-title');
+                el.sub      = document.getElementById('loading-sub');
+                el.elapsed  = document.getElementById('loading-elapsed');
+                el.bar      = document.getElementById('loading-bar');
+                el.fill     = document.getElementById('loading-bar-fill');
+                el.pct      = document.getElementById('loading-pct');
+                el.steps    = document.getElementById('loading-steps');
+                el.tip      = document.getElementById('loading-tip');
+                el.cancel   = document.getElementById('loading-cancel');
+                if (el.cancel) el.cancel.addEventListener('click', () => hide());
+            }
+
+            function renderSteps() {
+                el.steps.innerHTML = '';
+                STEPS.forEach(st => {
+                    const row = document.createElement('div');
+                    row.className = 'loading-step';
+                    row.id = `lstep-${st.key}`;
+                    row.innerHTML = `<span class="st-icon">○</span><span>${st.label}</span><span class="st-detail"></span>`;
+                    el.steps.appendChild(row);
+                });
+            }
+
+            function nextTip() {
+                el.tip.innerHTML = `💡 ${TIPS[tipIdx % TIPS.length]}`;
+                tipIdx++;
+            }
+
+            function show(title) {
+                ensure();
+                active = true;
+                startedAt = performance.now();
+                tipIdx = Math.floor(Math.random() * TIPS.length);
+                el.title.textContent = title || 'データを読み込んでいます';
+                el.sub.textContent = '準備中...';
+                el.cancel.style.display = 'none';
+                renderSteps();
+                nextTip();
+                indeterminate();
+                el.overlay.classList.add('show');
+                clearInterval(timerId);
+                timerId = setInterval(() => {
+                    el.elapsed.textContent = `${((performance.now() - startedAt) / 1000).toFixed(1)}秒`;
+                }, 100);
+                clearInterval(tipId);
+                tipId = setInterval(nextTip, 4500);
+            }
+
+            // step(key, 'active'|'done'|'error', 詳細テキスト)
+            function step(key, state, detail) {
+                if (!active) return;
+                ensure();
+                const row = document.getElementById(`lstep-${key}`);
+                if (!row) return;
+                row.className = `loading-step ${state || ''}`;
+                const icon = row.querySelector('.st-icon');
+                icon.textContent = state === 'done' ? '✔' : (state === 'error' ? '✕' : (state === 'active' ? '▶' : '○'));
+                if (detail !== undefined) row.querySelector('.st-detail').textContent = detail || '';
+                if (state === 'active') {
+                    const label = STEPS.find(s => s.key === key);
+                    if (label) el.sub.textContent = label.label.replace(/^[①-⑤]\s*/, '');
+                }
+            }
+
+            // 進捗率が分かる処理用（0-100）
+            function progress(pct, label) {
+                if (!active) return;
+                ensure();
+                el.bar.classList.remove('indeterminate');
+                el.fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+                el.pct.textContent = label || `${Math.round(pct)}%`;
+            }
+
+            // 進捗率が読めない処理用（流れるバー）
+            function indeterminate(label) {
+                if (!active) return;
+                ensure();
+                el.bar.classList.add('indeterminate');
+                el.fill.style.width = '';
+                el.pct.textContent = label || '';
+            }
+
+            function hide() {
+                ensure();
+                active = false;
+                clearInterval(timerId); clearInterval(tipId);
+                el.overlay.classList.remove('show');
+            }
+
+            function fail(message) {
+                ensure();
+                if (!active) return;
+                clearInterval(timerId); clearInterval(tipId);
+                el.title.textContent = '読み込みに失敗しました';
+                el.sub.textContent = message || '';
+                el.bar.classList.remove('indeterminate');
+                el.fill.style.width = '100%';
+                el.fill.style.background = '#ff4d6d';
+                el.cancel.style.display = 'block';
+                active = false;
+            }
+
+            function elapsedSec() { return (performance.now() - startedAt) / 1000; }
+
+            return { show, step, progress, indeterminate, hide, fail, elapsedSec, isActive: () => active };
+        })();
+
+        // 進捗を UI に反映させるため、重い同期処理の前に1フレーム譲る
+        function yieldToPaint() {
+            return new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        }
+
+        function formatBytes(n) {
+            if (!n && n !== 0) return '';
+            if (n < 1024) return `${n} B`;
+            if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
+            return `${(n / 1048576).toFixed(1)} MB`;
+        }
+
+        // Content-Length があれば実測パーセントでダウンロードする
+        async function fetchWithProgress(url, options, onProgress) {
+            const res = await fetch(url, options);
+            if (!res.ok) return res;
+            const total = parseInt(res.headers.get('content-length') || '0', 10);
+            if (!res.body || !res.body.getReader) return res;
+
+            const reader = res.body.getReader();
+            const chunks = [];
+            let received = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.length;
+                if (onProgress) onProgress(received, total);
+            }
+            const merged = new Uint8Array(received);
+            let offset = 0;
+            chunks.forEach(c => { merged.set(c, offset); offset += c.length; });
+            return { ok: true, status: res.status, _buffer: merged.buffer, arrayBuffer: async () => merged.buffer };
+        }
+
+        // ==========================================
         // データ形式アダプタ（gzip 対応 ＋ 台帳バックアップ形式の変換）
         // ==========================================
 
@@ -797,15 +1150,53 @@
         }
 
         // 読込完了後の共通 UI 更新
-        function applyLoadedData() {
+        async function applyLoadedData() {
             document.getElementById('initial-message').style.display = 'none';
             document.getElementById('network-tools-bar').style.display = 'flex';
             document.getElementById('legend-panel').style.display = 'block';
             document.getElementById('info-panel').style.display = 'block';
             document.getElementById('timeline-panel').style.display = 'flex';
             initDateRange();
+
+            Loader.step('layout', 'active');
+            Loader.indeterminate();
+            await yieldToPaint();
+
+            // 再読込時もレイアウトは計算し直されるので待機フラグを戻す
+            if (network) network._fhStabilized = false;
             processDataAndRender();
             updateTeamSelectCheckboxes(currentNodes ? currentNodes.get() : []);
+
+            // vis.js の物理演算（レイアウト計算）が終わるまで待つ。ここが最も時間のかかる工程。
+            await waitForNetworkLayout();
+
+            Loader.step('layout', 'done');
+            Loader.progress(100, '完了');
+            const secs = Loader.elapsedSec().toFixed(1);
+            const badge = document.getElementById('sp-load-badge');
+            if (badge && badge.textContent.startsWith('✅')) badge.title = `読込時間: ${secs}秒`;
+            setTimeout(() => Loader.hide(), 400);
+        }
+
+        // レイアウト安定化の進捗をオーバーレイに流す
+        let layoutWaiters = [];
+        function waitForNetworkLayout() {
+            if (!network) return Promise.resolve();
+            if (network._fhStabilized) return Promise.resolve();
+            return new Promise(resolve => {
+                layoutWaiters.push(resolve);
+                // 万一 stabilized が飛んでこなくても UI を止めない
+                setTimeout(() => {
+                    const i = layoutWaiters.indexOf(resolve);
+                    if (i >= 0) { layoutWaiters.splice(i, 1); resolve(); }
+                }, 30000);
+            });
+        }
+        function resolveLayoutWaiters() {
+            if (network) network._fhStabilized = true;
+            const list = layoutWaiters;
+            layoutWaiters = [];
+            list.forEach(fn => fn());
         }
 
         async function loadLatestJsonFromSharePoint() {
@@ -816,7 +1207,12 @@
                 btn.innerHTML = '⌛ 読込中...';
                 if (badge) badge.textContent = 'シェアポイントに接続中...';
 
+                Loader.show('SharePoint から戦績を読み込んでいます');
+                Loader.step('auth', 'active');
+
                 const token = await getGraphToken();
+                Loader.step('auth', 'done');
+                Loader.step('locate', 'active');
 
                 // Step 1: サイトIDを取得
                 const siteUrl = `https://graph.microsoft.com/v1.0/sites/flaghunt.sharepoint.com:/sites/trainingday`;
@@ -875,6 +1271,8 @@
                 const latest   = jsonFiles[0];
                 const fileDate = new Date(latest.lastModifiedDateTime).toLocaleString('ja-JP');
                 console.log("Latest file:", latest.name, "Modified:", fileDate);
+                Loader.step('locate', 'done', latest.name);
+                Loader.step('download', 'active');
 
                 // ファイルをダウンロード
                 let dlUrl = latest['@microsoft.graph.downloadUrl'];
@@ -887,18 +1285,31 @@
                 }
                 console.log("Downloading from:", dlUrl);
 
-                const fileRes = await fetch(dlUrl, dlUrl.includes('graph.microsoft.com') ? {
+                const fileRes = await fetchWithProgress(dlUrl, dlUrl.includes('graph.microsoft.com') ? {
                     headers: { 'Authorization': `Bearer ${token}` }
-                } : {});
+                } : {}, (received, total) => {
+                    if (total > 0) {
+                        Loader.progress(received / total * 100, `${formatBytes(received)} / ${formatBytes(total)}`);
+                    } else {
+                        Loader.indeterminate(formatBytes(received));
+                    }
+                    Loader.step('download', 'active', formatBytes(received));
+                });
                 if (!fileRes.ok) throw new Error(`ダウンロード失敗 (${fileRes.status})`);
 
                 const buffer = await fileRes.arrayBuffer();
                 console.log(`Downloaded ${latest.name} (${buffer.byteLength} bytes)`);
                 if (badge) badge.textContent = 'データ変換中...';
+                Loader.step('download', 'done', formatBytes(buffer.byteLength));
+                Loader.step('convert', 'active');
+                Loader.indeterminate();
+                await yieldToPaint();
+
                 rawJsonData = normalizeDataset(await decodeDataFile(buffer, latest.name));
+                Loader.step('convert', 'done', `${rawJsonData.players ? rawJsonData.players.length : 0}名`);
 
                 // 通常の JSON 読込と同じ処理
-                applyLoadedData();
+                await applyLoadedData();
 
                 if (badge) { badge.style.color = '#06d6a0'; badge.textContent = `✅ ${latest.name}`; badge.title = `更新: ${fileDate}`; }
                 btn.innerHTML = '🔄 再読込';
@@ -907,6 +1318,7 @@
                 console.error('SharePoint読込エラー:', err);
                 if (badge) { badge.style.color = '#ff4d6d'; badge.textContent = `❌ ${err.message}`; }
                 btn.innerHTML = '📂 SharePoint 自動読込';
+                Loader.fail(err.message);
                 alert(`SharePointからの読み込みに失敗しました。
 
 詳細: ${err.message}`);
@@ -1191,13 +1603,25 @@
             const badge = document.getElementById('sp-load-badge');
             try {
                 if (badge) { badge.style.color = '#8b9bb4'; badge.textContent = `⌛ ${file.name} を読込中...`; }
+                Loader.show('ファイルを読み込んでいます');
+                Loader.step('auth', 'done', 'スキップ');
+                Loader.step('locate', 'done', file.name);
+                Loader.step('download', 'active');
+
                 const buffer = await file.arrayBuffer();
+                Loader.step('download', 'done', formatBytes(buffer.byteLength));
+                Loader.step('convert', 'active');
+                await yieldToPaint();
+
                 rawJsonData = normalizeDataset(await decodeDataFile(buffer, file.name));
-                applyLoadedData();
+                Loader.step('convert', 'done', `${rawJsonData.players ? rawJsonData.players.length : 0}名`);
+
+                await applyLoadedData();
                 if (badge) { badge.style.color = '#06d6a0'; badge.textContent = `✅ ${file.name}`; }
             } catch (err) {
                 console.error('ファイル読込エラー:', err);
                 if (badge) { badge.style.color = '#ff4d6d'; badge.textContent = `❌ ${err.message}`; }
+                Loader.fail(err.message);
                 alert('データ処理エラー:\n' + err.message);
             }
         }
@@ -1264,17 +1688,42 @@
                     const mKey = `${evId}__${mId}`;
                     const teamId = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam : (g.team !== undefined ? g.team : 'team_0'));
 
-                    if (!matchGroup[mKey]) matchGroup[mKey] = { teams: {}, wonTeam: null };
+                    if (!matchGroup[mKey]) matchGroup[mKey] = { key: mKey, teams: {}, wonTeam: null, isDraw: false, date: g.date || eventDateMap[g.eventId] || null };
                     if (!matchGroup[mKey].teams[teamId]) matchGroup[mKey].teams[teamId] = new Set();
                     matchGroup[mKey].teams[teamId].add(pid);
 
                     if (g.won || g.result === 'win') matchGroup[mKey].wonTeam = teamId;
+                    if (g.draw || g.result === 'draw') matchGroup[mKey].isDraw = true;
 
                     // globalMatchTeams も Set から配列にして保存（後方互換）
                     if (!globalMatchTeams[mKey]) globalMatchTeams[mKey] = {};
                     if (!globalMatchTeams[mKey][teamId]) globalMatchTeams[mKey][teamId] = [];
                     if (!globalMatchTeams[mKey][teamId].includes(pid)) globalMatchTeams[mKey][teamId].push(pid);
                 });
+            });
+
+            // ---- レーティング計算（OpenSkill）----
+            // 試合を時系列に並べ直してから順に評価する。日付が同じ場合は
+            // アダプタが積んだ順（= seq 順）を保つため初出インデックスで安定ソートする。
+            const orderedMatches = Object.values(matchGroup).map((m, idx) => ({
+                key: m.key,
+                date: m.date,
+                isDraw: m.isDraw,
+                wonTeam: m.wonTeam,
+                _idx: idx,
+                teams: Object.fromEntries(Object.entries(m.teams).map(([tid, set]) => [tid, Array.from(set)]))
+            }));
+            orderedMatches.sort((a, b) => {
+                const da = a.date || '9999-99-99', db = b.date || '9999-99-99';
+                if (da !== db) return da < db ? -1 : 1;
+                return a._idx - b._idx;
+            });
+            computeRatings(orderedMatches);
+
+            // 情報パネル等が参照する μ を計算済みレートで上書きする
+            // （台帳の ratings カラムは空のため、従来は全員 25.0 が表示されていた）
+            Object.keys(playerRatings).forEach(pid => {
+                globalPlayerRatings[pid] = playerRatings[pid].mu;
             });
 
             // 試合データから共闘（同一チーム）と対戦（敵チーム）を1対1で整合集計
@@ -1403,6 +1852,23 @@
                     layout: { improvedLayout: false }
                 });
                 network.on('click', (p) => { if(p.nodes.length) updateInfo(p.nodes[0]); });
+
+                // レイアウト計算（物理演算）の進捗をオーバーレイへ
+                network.on('stabilizationProgress', (params) => {
+                    if (!params || !params.total) return;
+                    if (network._fhStabilized) return; // 完了表示に戻ってしまうのを防ぐ
+                    const pct = params.iterations / params.total * 100;
+                    Loader.progress(pct, `レイアウト計算 ${Math.round(pct)}%`);
+                    Loader.step('layout', 'active', `${params.iterations} / ${params.total}`);
+                });
+                network.on('stabilizationIterationsDone', () => {
+                    network._fhStabilized = true;
+                    resolveLayoutWaiters();
+                });
+                network.on('stabilized', () => {
+                    network._fhStabilized = true;
+                    resolveLayoutWaiters();
+                });
             }
         }
 
@@ -1508,7 +1974,8 @@
         function updateInfo(pid) {
             const node = currentNodes.get(pid);
             if(!node) return;
-            const ratingMu = (globalPlayerRatings[pid] !== undefined) ? globalPlayerRatings[pid].toFixed(2) : "不明";
+            const rt = getRating(pid);
+            const ratingMu = rt.games ? rt.mu.toFixed(2) : "不明";
             const flagCount = globalPlayerFlagCounts[pid] !== undefined ? globalPlayerFlagCounts[pid] : 0;
             
             // 未共闘ライバルのトップ候補
@@ -1521,7 +1988,9 @@
 
             document.getElementById('info-name').innerHTML = `${globalPlayerHtmlNames[pid]} <span class="badge" style="font-size:12px; font-weight:normal; margin-left:8px;">${node.value}人と共闘</span>`;
             document.getElementById('info-details').innerHTML = `
-                <div style="color:#ffd700; margin-bottom:5px;">• <b>強さ(μ)</b>: ${ratingMu}</div>
+                <div style="color:#ffd700; margin-bottom:5px;">• <b>実力指数</b>: ${rt.games ? skillIndex(pid) : '—'}${provisionalBadge(pid)}
+                    <span style="font-size:11px; color:#8b9bb4;">（平均50・±10で1段階）</span></div>
+                <div style="color:#8b9bb4; margin-bottom:5px; font-size:11px;">　μ ${ratingMu} ± σ ${rt.games ? rt.sigma.toFixed(2) : '—'} ／ 評価の確度 ${rt.games ? Math.round(certaintyScore(pid)) + '%' : '—'}（${rt.games}試合）</div>
                 <div style="color:#ff4d6d; margin-bottom:5px;">• <b>フラッグ数</b>: ${flagCount}</div>
                 <div>• <b>指定期間の出場数</b>: ${node.rawGames} 試合</div>
                 <div style="margin-top:8px; color:#8b9bb4;">よく組む相手:</div>
@@ -1547,13 +2016,8 @@
             
             allPids.forEach(id => {
                 let games = playerRawGames[id] || [];
-                let mu = 25.0; let sigma = 8.33;
-                games.forEach(g => {
-                    if (g.won || g.result === 'win') mu += 0.8; else if (g.lost || g.result === 'loss') mu -= 0.6; else mu += 0.1;
-                    if (g.gotFlag) mu += 0.4;
-                    sigma = Math.max(2.0, sigma - 0.1);
-                });
-                let consistencyScore = Math.max(0, 100 - (sigma / 8.33 * 100));
+                // σ は OpenSkill が返す推定の不確実性。小さいほど評価が固まっている。
+                const certainty = certaintyScore(id);
                 
                 if (N > 0 && games.length > N) games = games.slice(-N);
                 
@@ -1575,7 +2039,7 @@
                 });
                 
                 if (games.length > 0) {
-                    const st = { id: id, flagPerGame: flagCount / games.length, winRate: winCount / games.length, uniqueAllies: allies.size, uniqueEnemies: enemies.size, consistencyScore: consistencyScore };
+                    const st = { id: id, flagPerGame: flagCount / games.length, winRate: winCount / games.length, uniqueAllies: allies.size, uniqueEnemies: enemies.size, certaintyScore: certainty };
                     validStats.push(st); statsMap[id] = st;
                 }
             });
@@ -1588,7 +2052,7 @@
                 return { mean, stdDev: Math.sqrt(variance) || 1 }; 
             };
 
-            const statsKeys = ['flagPerGame', 'winRate', 'uniqueAllies', 'consistencyScore', 'uniqueEnemies'];
+            const statsKeys = ['flagPerGame', 'winRate', 'uniqueAllies', 'certaintyScore', 'uniqueEnemies'];
             const statMetrics = {}; statsKeys.forEach(key => { statMetrics[key] = calcMeanAndStdDev(key); });
 
             const mySt = statsMap[pid];
@@ -1603,7 +2067,7 @@
             radarChartObj = new Chart(document.getElementById('radarChart').getContext('2d'), {
                 type: 'radar',
                 data: {
-                    labels: ['攻撃力(F/G)', '勝率', '味方バラエティ', '安定度(σ)', '敵バラエティ'],
+                    labels: ['攻撃力(F/G)', '勝率', '味方バラエティ', '評価の確度', '敵バラエティ'],
                     datasets: [{ label: '偏差値', data: radarData, backgroundColor: 'rgba(6, 214, 160, 0.4)', borderColor: '#06d6a0', pointBackgroundColor: '#06d6a0', pointRadius: 4, borderWidth: 2 }]
                 },
                 options: {
@@ -1613,15 +2077,16 @@
                 }
             });
             
-            let history = []; let mu_hist = 25.0; let sigma_hist = 8.33;
-            let p_games = playerRawGames[pid] || [];
-            p_games.forEach((g, idx) => {
-                if (g.won || g.result === 'win') mu_hist += 0.8; else if (g.lost || g.result === 'loss') mu_hist -= 0.6; else mu_hist += 0.1;
-                if (g.gotFlag) mu_hist += 0.4;
-                sigma_hist = Math.max(2.0, sigma_hist - 0.1);
-                let dLabel = g.date ? String(g.date).substring(0,10) : `G${idx+1}`;
-                history.push({ idx: idx + 1, dateLabel: dLabel, mu: mu_hist, sigma: sigma_hist, gotFlag: !!g.gotFlag });
-            });
+            // OpenSkill が試合ごとに返した μ / σ をそのまま描く（旧実装の累積加算は撤去）
+            const p_games = playerRawGames[pid] || [];
+            const rtHist = getRating(pid).history || [];
+            let history = rtHist.map((h, idx) => ({
+                idx: idx + 1,
+                dateLabel: h.date ? String(h.date).substring(0, 10) : `G${idx + 1}`,
+                mu: h.mu,
+                sigma: h.sigma,
+                gotFlag: !!(p_games[idx] && p_games[idx].gotFlag)
+            }));
             
             if (N > 0 && history.length > N) history = history.slice(-N);
             
@@ -1818,15 +2283,17 @@
 
         function getPlayerRollingStats(pid, rollingWindow) {
             let games = playerRawGames[pid] || [];
-            if (rollingWindow > 0 && games.length > rollingWindow) games = games.slice(-rollingWindow); 
-            let flags = 0; let mu = 25.0;
-            if (games.length === 0 && pid.includes("(guest")) { mu = globalPlayerRatings[pid] || 15.0; } 
-            else {
-                games.forEach(g => {
-                    if (g.won || g.result === 'win') mu += 0.8; else if (g.lost || g.result === 'loss') mu -= 0.6; else mu += 0.1;
-                    if (g.gotFlag) { flags++; mu += 0.4; }
-                });
-            }
+            if (rollingWindow > 0 && games.length > rollingWindow) games = games.slice(-rollingWindow);
+
+            // フラッグ数は従来どおり直近N試合で数える
+            let flags = 0;
+            games.forEach(g => { if (g.gotFlag) flags++; });
+
+            // 実力は OpenSkill の μ を使う。μ は日付範囲で絞った全試合から
+            // 算出されるため、直近N試合スライダーの影響は受けない。
+            const rt = getRating(pid);
+            let mu = rt.games ? rt.mu : RATING_DEFAULTS.mu;
+            if (!rt.games && String(pid).includes("guest")) mu = globalPlayerRatings[pid] || RATING_DEFAULTS.mu;
             return { mu: mu, flags: flags };
         }
 
