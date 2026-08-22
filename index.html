@@ -751,7 +751,7 @@
         // 勝率36%を超える全員のμが無限に増え続け、実力ではなく出場回数を測っていた。
         // ここでは試合単位で OpenSkill を回し、μ(実力) と σ(推定の不確実性) を得る。
 
-        const RATING_DEFAULTS = { mu: 25, sigma: 25 / 3 };
+        const RATING_DEFAULTS = { mu: 25, sigma: 25 / 3, ordinal: 0 };  // ordinal = 25 - 3*(25/3) = 0
         // predictWin を表示に使う場合の β。既定値(25/6)のままだと自信過剰になり
         // 実データのバックテストで logloss がコイン投げより悪化したため分けている。
         const RATING_DISPLAY_BETA = 50;
@@ -1538,7 +1538,9 @@
         let globalPlayerHtmlNames = {}; let globalPlayerRatings = {}; let globalPlayerFlagCounts = {}; 
         let globalPlayerLastDate = {}; let playerRawGames = {}; 
         
-        let selectedTeamPlayers = new Set(); 
+        let selectedTeamPlayers = new Set();
+        // ゲストは戦績が無いため、選択中メンバーの最小 ordinal を割り当てる
+        let guestSkillOverride = {}; 
         let fixedTeamAssignments = {};
         let aiAssignedTeams = {};
         let customTeamOrders = {}; // チーム毎のメンバー並び順（ゼッケン番号順）
@@ -1786,12 +1788,14 @@
             const nick = inputEl.value.trim() || 'ゲスト';
             const guestId = `${nick} (guest${String(guestCounter).padStart(2, '0')})`;
             guestCounter++;
-            let minMu = 25.0;
+            // 選択中メンバーのうち最も実力の低い人に合わせる（ordinal スケール）
             const activeIds = Array.from(selectedTeamPlayers);
-            if (activeIds.length > 0) {
-                activeIds.forEach(pid => { const mu = globalPlayerRatings[pid] || 25.0; if (mu < minMu) minMu = mu; });
-            }
-            minMu = Math.max(15.0, minMu); 
+            const ratedOrdinals = activeIds.map(pid => getRating(pid)).filter(r => r.games > 0).map(r => r.ordinal);
+            const minSkill = ratedOrdinals.length ? Math.min(...ratedOrdinals) : RATING_DEFAULTS.ordinal;
+            guestSkillOverride[guestId] = minSkill;
+
+            const ratedMus = activeIds.map(pid => getRating(pid)).filter(r => r.games > 0).map(r => r.mu);
+            const minMu = ratedMus.length ? Math.min(...ratedMus) : RATING_DEFAULTS.mu;
             globalPlayerNames[guestId] = guestId; globalPlayerHtmlNames[guestId] = guestId;
             globalPlayerRatings[guestId] = minMu; globalPlayerFlagCounts[guestId] = 0;
             globalPlayerLastDate[guestId] = "9999-99-99"; playerRawGames[guestId] = []; 
@@ -2528,18 +2532,26 @@
             let flags = 0;
             games.forEach(g => { if (g.gotFlag) flags++; });
 
-            // 実力は OpenSkill の μ を使う。μ は日付範囲で絞った全試合から
-            // 算出されるため、直近N試合スライダーの影響は受けない。
+            // 実力は ordinal（μ-3σ）を使う。実績の裏付けが薄い人を強いと
+            // 決めつけない保守的な推定値で、情報パネルの実力指数と同じ量。
+            // 日付範囲で絞った全試合から算出されるため、直近N試合スライダーの
+            // 影響は受けない（フラッグ数のみスライダーが効く）。
             const rt = getRating(pid);
-            let mu = rt.games ? rt.mu : RATING_DEFAULTS.mu;
-            if (!rt.games && String(pid).includes("guest")) mu = globalPlayerRatings[pid] || RATING_DEFAULTS.mu;
-            return { mu: mu, flags: flags };
+            let skill;
+            if (rt.games) {
+                skill = rt.ordinal;
+            } else if (guestSkillOverride[pid] !== undefined) {
+                skill = guestSkillOverride[pid];
+            } else {
+                skill = RATING_DEFAULTS.ordinal;   // 初期値 μ25/σ8.33 の ordinal = 0
+            }
+            return { skill: skill, flags: flags };
         }
 
         function updateTeamComparisonChart(teams, teamStats, numTeams) {
             const ctx = document.getElementById('teamComparisonChart').getContext('2d');
             const labels = teams.map((_, idx) => globalTeamSettings[idx].name);
-            const muData = teamStats.map(st => st.sumMu); const fData = teamStats.map(st => st.sumF);
+            const muData = teamStats.map(st => st.sumSkill); const fData = teamStats.map(st => st.sumF);
             const bgColors = teams.map((_, idx) => globalTeamSettings[idx].color + '99'); 
             const borderColors = teams.map((_, idx) => globalTeamSettings[idx].color);
 
@@ -2554,7 +2566,7 @@
                     data: {
                         labels: labels,
                         datasets: [
-                            { label: '戦力(μ)', data: muData, backgroundColor: bgColors, borderColor: borderColors, borderWidth: 1, yAxisID: 'y' },
+                            { label: '戦力(μ-3σ)', data: muData, backgroundColor: bgColors, borderColor: borderColors, borderWidth: 1, yAxisID: 'y' },
                             { label: '攻撃力(F)', data: fData, backgroundColor: 'rgba(255, 77, 109, 0.5)', borderColor: '#ff4d6d', borderWidth: 1, yAxisID: 'y1' }
                         ]
                     },
@@ -2679,13 +2691,13 @@
             btnExportCsv.style.display = selectedTeamPlayers.size > 0 ? 'block' : 'none';
 
             let teamStats = teams.map(tm => {
-                let sumMu = 0, sumF = 0;
+                let sumSkill = 0, sumF = 0;
                 tm.forEach(pid => { 
                     const st = getPlayerRollingStats(pid, rollingWindow); 
-                    sumMu += st.mu; 
+                    sumSkill += st.skill; 
                     sumF += st.flags; 
                 });
-                return { sumMu, sumF };
+                return { sumSkill, sumF };
             });
 
             document.querySelectorAll('.player-row').forEach(row => {
@@ -2731,7 +2743,7 @@
                     </div>
                     <div style="margin-top:10px; pointer-events:auto;">${names}</div>
                     <div style="font-size:12px; margin-top:12px; padding: 6px; background: rgba(0,0,0,0.3); border-radius:4px; display:flex; justify-content:space-around;">
-                        <span style="color:#ffbe0b;">戦力(μ): <b>${teamStats[idx].sumMu.toFixed(1)}</b></span>
+                        <span style="color:#ffbe0b;">戦力(μ-3σ): <b>${teamStats[idx].sumSkill.toFixed(1)}</b></span>
                         <span style="color:#ff4d6d;">攻撃(F): <b>${teamStats[idx].sumF}</b></span>
                     </div>
                 </div>`;
@@ -2985,16 +2997,16 @@
 
                     // キャッシュ用プレイヤー情報
                     const playerStatsCache = {};
-                    let globalMuSum = 0; 
+                    let globalSkillSum = 0; 
                     let globalFlagSum = 0;
                     activePlayerIds.forEach(pid => {
                         const st = getPlayerRollingStats(pid, rollingWindow);
                         playerStatsCache[pid] = st;
-                        globalMuSum += st.mu; 
+                        globalSkillSum += st.skill; 
                         globalFlagSum += st.flags;
                     });
 
-                    let targetTeamMuSum = globalMuSum / numTeams; 
+                    let targetTeamSkillSum = globalSkillSum / numTeams; 
                     let targetTeamFlagSum = globalFlagSum / numTeams;
 
                     let teams = Array.from({length: numTeams}, () => []);
@@ -3037,9 +3049,9 @@
                     }
 
                     function calcTeamSkillPenalty(team) {
-                        let teamMuSum = 0; 
-                        team.forEach(pid => { if (playerStatsCache[pid]) teamMuSum += playerStatsCache[pid].mu; }); 
-                        return Math.abs(teamMuSum - targetTeamMuSum);
+                        let teamSkillSum = 0;
+                        team.forEach(pid => { if (playerStatsCache[pid]) teamSkillSum += playerStatsCache[pid].skill; });
+                        return Math.abs(teamSkillSum - targetTeamSkillSum);
                     }
 
                     function calcTeamFlagPenalty(team) {
