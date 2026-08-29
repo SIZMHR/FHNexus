@@ -2247,6 +2247,7 @@
 
         window.openPlayerModal = function(pid) {
             activePlayerIdForModal = pid;
+            matchupExpandedState = { killers: false, nemesis: false, rivals: false };
             const pName = globalPlayerNames[pid] || pid;
             document.getElementById('modal-player-name').textContent = `${pName} - 詳細分析`;
             document.getElementById('player-modal').style.display = 'flex';
@@ -2258,6 +2259,14 @@
         // ==========================================
         // プレイヤー間 相性インサイト（共闘勝率 TOP ＆ 対戦相性）
         // ==========================================
+        let matchupExpandedState = { killers: false, nemesis: false, rivals: false };
+        let currentMatchupData = { killers: [], nemesis: [], rivals: [], minGames: 40, totalQualified: 0 };
+
+        window.toggleMatchupCategory = function(cat) {
+            matchupExpandedState[cat] = !matchupExpandedState[cat];
+            renderMatchupInsights();
+        };
+
         function updatePlayerCompatibility(pid) {
             const partnersEl = document.getElementById('modal-best-partners');
             const matchupsEl = document.getElementById('modal-matchup-insights');
@@ -2320,7 +2329,7 @@
                 });
             }
 
-            // 1. ベストパートナー TOP (最低20試合、勝率降順、同率は総試合数降順)
+            // 1. ベストパートナー TOP (最低40試合、勝率降順、同率は総試合数降順)
             const qualifiedPartners = Object.entries(allyStats)
                 .filter(([_, st]) => st.total >= MIN_GAMES)
                 .map(([id, st]) => ({
@@ -2337,7 +2346,7 @@
 
             renderBestPartners(qualifiedPartners, MIN_GAMES);
 
-            // 2. 対戦相性 (最低20試合)
+            // 2. 対戦相性 (最低40試合)
             const qualifiedOpponents = Object.entries(oppStats)
                 .filter(([_, st]) => st.total >= MIN_GAMES)
                 .map(([id, st]) => ({
@@ -2350,23 +2359,31 @@
                     winRate: (st.wins / st.total) * 100
                 }));
 
-            // 🎯 カモ / キラー (対戦勝率 TOP 2)
+            // 🎯 カモ / キラー (対戦勝率 TOP 5)
             const killers = [...qualifiedOpponents]
                 .sort((a, b) => b.winRate - a.winRate || b.total - a.total)
-                .slice(0, 2);
+                .slice(0, 5);
 
-            // 🛡️ 天敵・壁 (対戦勝率 LOW 2)
+            // 🛡️ 天敵・壁 (対戦勝率 LOW 5)
             const nemesis = [...qualifiedOpponents]
                 .sort((a, b) => a.winRate - b.winRate || b.total - a.total)
-                .slice(0, 2);
+                .slice(0, 5);
 
-            // ⚖️ 好敵手 / 宿命のライバル (勝率 40%〜60%の中で対戦数最多)
+            // ⚖️ 好敵手 / 宿命のライバル (勝率 40%〜60%の中で対戦数最多 5名)
             const rivals = [...qualifiedOpponents]
                 .filter(p => p.winRate >= 40 && p.winRate <= 60)
                 .sort((a, b) => b.total - a.total)
-                .slice(0, 1);
+                .slice(0, 5);
 
-            renderMatchupInsights(killers, nemesis, rivals, MIN_GAMES, qualifiedOpponents.length);
+            currentMatchupData = {
+                killers: killers,
+                nemesis: nemesis,
+                rivals: rivals,
+                minGames: MIN_GAMES,
+                totalQualified: qualifiedOpponents.length
+            };
+
+            renderMatchupInsights();
         }
 
         function renderBestPartners(partners, minGames) {
@@ -2397,64 +2414,86 @@
             listEl.innerHTML = html;
         }
 
-        function renderMatchupInsights(killers, nemesis, rivals, minGames, totalQualified) {
+        function renderMatchupInsights() {
             const listEl = document.getElementById('modal-matchup-insights');
             if (!listEl) return;
+
+            const { killers, nemesis, rivals, minGames, totalQualified } = currentMatchupData;
 
             if (totalQualified === 0) {
                 listEl.innerHTML = `<div style="color:#8b9bb4; font-size:11.5px; text-align:center; padding:12px 8px; background:rgba(0,0,0,0.25); border-radius:6px; line-height:1.5;">対戦 ${minGames}試合以上の対象データがありません<br><span style="color:#6c7d93; font-size:10.5px;">(※全期間または対戦数が多いプレイヤーで表示されます)</span></div>`;
                 return;
             }
 
+            const categories = [
+                {
+                    key: 'killers',
+                    title: '🎯 お得意様 (対戦勝率 TOP)',
+                    badgeColor: '#06d6a0',
+                    borderColor: 'rgba(6,214,160,0.25)',
+                    bgColor: 'rgba(6,214,160,0.06)',
+                    list: killers
+                },
+                {
+                    key: 'nemesis',
+                    title: '🛡️ 天敵・要警戒 (対戦勝率 LOW)',
+                    badgeColor: '#ff4d6d',
+                    borderColor: 'rgba(255,77,109,0.25)',
+                    bgColor: 'rgba(255,77,109,0.06)',
+                    list: nemesis
+                },
+                {
+                    key: 'rivals',
+                    title: '⚖️ 宿命のライバル (激闘枠)',
+                    badgeColor: '#00d2ff',
+                    borderColor: 'rgba(0,210,255,0.25)',
+                    bgColor: 'rgba(0,210,255,0.06)',
+                    list: rivals
+                }
+            ];
+
+            const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
             let html = '';
 
-            // 🎯 カモ / キラー（対戦勝率 TOP）
-            if (killers.length > 0) {
-                const k = killers[0];
-                html += `
-                <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(6,214,160,0.2); border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                    <div style="min-width:0; flex:1;">
-                        <div style="font-size:10px; font-weight:bold; color:#06d6a0; margin-bottom:2px;">🎯 お得意様 (対戦勝率 TOP)</div>
-                        <div style="font-weight:bold; font-size:12.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${k.htmlName}</div>
-                    </div>
-                    <div style="text-align:right; flex-shrink:0;">
-                        <div style="color:#06d6a0; font-weight:bold; font-size:13px; font-variant-numeric:tabular-nums;">${k.winRate.toFixed(1)}%</div>
-                        <div style="font-size:10px; color:#8b9bb4;">${k.wins}勝 ${k.losses}敗 (${k.total}戦)</div>
-                    </div>
-                </div>`;
-            }
+            categories.forEach(cat => {
+                if (cat.list.length === 0) return;
+                const isExpanded = !!matchupExpandedState[cat.key];
+                const displayList = isExpanded ? cat.list : [cat.list[0]];
+                const hasMore = cat.list.length > 1;
 
-            // 🛡️ 天敵・壁（対戦勝率 LOW）
-            if (nemesis.length > 0) {
-                const n = nemesis[0];
                 html += `
-                <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,77,109,0.2); border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                    <div style="min-width:0; flex:1;">
-                        <div style="font-size:10px; font-weight:bold; color:#ff4d6d; margin-bottom:2px;">🛡️ 天敵・要警戒 (対戦勝率 LOW)</div>
-                        <div style="font-weight:bold; font-size:12.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${n.htmlName}</div>
+                <div style="background: ${cat.bgColor}; border: 1px solid ${cat.borderColor}; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s ease;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; cursor:${hasMore ? 'pointer' : 'default'}; user-select:none;" onclick="${hasMore ? `window.toggleMatchupCategory('${cat.key}')` : ''}">
+                        <span style="font-size:11px; font-weight:bold; color:${cat.badgeColor}; display:flex; align-items:center; gap:4px;">
+                            ${cat.title}
+                        </span>
+                        ${hasMore ? `
+                            <span style="font-size:10px; color:${isExpanded ? '#ffd700' : '#8b9bb4'}; background:rgba(255,255,255,0.07); padding:2px 7px; border-radius:10px; border:1px solid rgba(255,255,255,0.1); font-weight:bold;">
+                                ${isExpanded ? '▲ 閉じる' : `TOP ${cat.list.length} を表示 ▾`}
+                            </span>
+                        ` : ''}
                     </div>
-                    <div style="text-align:right; flex-shrink:0;">
-                        <div style="color:#ff4d6d; font-weight:bold; font-size:13px; font-variant-numeric:tabular-nums;">${n.winRate.toFixed(1)}%</div>
-                        <div style="font-size:10px; color:#8b9bb4;">${n.wins}勝 ${n.losses}敗 (${n.total}戦)</div>
-                    </div>
-                </div>`;
-            }
+                    <div style="display:flex; flex-direction:column; gap:4px;">`;
 
-            // ⚖️ 好敵手 / 宿命のライバル
-            if (rivals.length > 0) {
-                const r = rivals[0];
+                displayList.forEach((item, idx) => {
+                    const medal = isExpanded ? (medals[idx] || `${idx + 1}.`) : '';
+                    html += `
+                        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor:${hasMore ? 'pointer' : 'default'};" onclick="${hasMore ? `window.toggleMatchupCategory('${cat.key}')` : ''}">
+                            <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
+                                ${isExpanded ? `<span style="font-size:12px; flex-shrink:0;">${medal}</span>` : ''}
+                                <span style="font-weight:bold; font-size:12px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.htmlName}</span>
+                            </div>
+                            <div style="text-align:right; flex-shrink:0;">
+                                <span style="color:${cat.badgeColor}; font-weight:bold; font-size:12px; font-variant-numeric:tabular-nums; margin-right:4px;">${item.winRate.toFixed(1)}%</span>
+                                <span style="font-size:10px; color:#8b9bb4;">(${item.wins}勝${item.losses}敗 / ${item.total}戦)</span>
+                            </div>
+                        </div>`;
+                });
+
                 html += `
-                <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,210,255,0.2); border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                    <div style="min-width:0; flex:1;">
-                        <div style="font-size:10px; font-weight:bold; color:#00d2ff; margin-bottom:2px;">⚖️ 宿命のライバル (激闘枠)</div>
-                        <div style="font-weight:bold; font-size:12.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.htmlName}</div>
-                    </div>
-                    <div style="text-align:right; flex-shrink:0;">
-                        <div style="color:#00d2ff; font-weight:bold; font-size:13px; font-variant-numeric:tabular-nums;">${r.winRate.toFixed(1)}%</div>
-                        <div style="font-size:10px; color:#8b9bb4;">${r.wins}勝 ${r.losses}敗 (${r.total}戦)</div>
                     </div>
                 </div>`;
-            }
+            });
 
             listEl.innerHTML = html;
         }
