@@ -1571,6 +1571,8 @@
         let globalMatchTeams = {}; let globalTeammateCounts = {}; let globalOpponentCounts = {}; let globalPlayerNames = {};      
         let globalPlayerHtmlNames = {}; let globalPlayerRatings = {}; let globalPlayerFlagCounts = {}; 
         let globalPlayerLastDate = {}; let playerRawGames = {}; 
+        let playerStatsCache = {};     // パフォーマンス最適化: { N: { [pid]: {id,winRate,...} } }  N=0,25,50
+        let playerCompatCache = {};    // パフォーマンス最適化: { [pid]: { ally: {[oppPid]:{wins,total}}, opp: {...} } }
         
         let selectedTeamPlayers = new Set();
         // ゲストは戦績が無いため、選択中メンバーの最小 ordinal を割り当てる
@@ -2116,7 +2118,7 @@
             if(!network && typeof vis !== 'undefined') {
                 network = new vis.Network(document.getElementById('network'), { nodes: currentNodes, edges: currentEdges }, {
                     nodes: { shape: 'dot', scaling: { min: 10, max: 40, label: {enabled: true, min:10, max:20} }, borderWidth: 1.5 },
-                    edges: { smooth: { type: 'continuous' } }, physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -30 } },
+                    edges: { smooth: { type: 'continuous' } }, physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -30 }, stabilization: { iterations: 200, updateInterval: 25 } },
                     // 200人規模では improvedLayout が無効化される（vis.js の警告）ため明示的に切って初期描画を軽くする
                     layout: { improvedLayout: false }
                 });
@@ -2130,12 +2132,15 @@
                     Loader.progress(pct, `レイアウト計算 ${Math.round(pct)}%`);
                     Loader.step('layout', 'active', `${params.iterations} / ${params.total}`);
                 });
+                // 安定化完了後は物理演算を無効化してCPU負荷をゼロに
                 network.on('stabilizationIterationsDone', () => {
                     network._fhStabilized = true;
+                    network.setOptions({ physics: { enabled: false } });
                     resolveLayoutWaiters();
                 });
                 network.on('stabilized', () => {
                     network._fhStabilized = true;
+                    network.setOptions({ physics: { enabled: false } });
                     resolveLayoutWaiters();
                 });
 
@@ -2145,6 +2150,83 @@
                 syncNetworkSize(true);
                 setTimeout(() => syncNetworkSize(true), 120);
             }
+
+            // ===== パフォーマンスキャッシュ事前構築（データ読込後1回のみ） =====
+            // 1. レーダーチャート偏差値計算用: 全N期間の統計を一括計算してキャッシュ
+            playerStatsCache = {};
+            [0, 25, 50].forEach(N => {
+                const cache = {};
+                Object.keys(playerRawGames).forEach(id => {
+                    let games = playerRawGames[id] || [];
+                    if (N > 0 && games.length > N) games = games.slice(-N);
+                    if (games.length === 0) return;
+                    let winCount = 0, flagCount = 0;
+                    const allies = new Set(), enemies = new Set();
+                    games.forEach(g => {
+                        if (g.won || g.result === 'win') winCount++;
+                        if (g.gotFlag) flagCount++;
+                        const evKey = g.eventId || g.date || 'ev';
+                        const mIdKey = (g.matchId !== undefined && g.matchId !== null) ? g.matchId
+                            : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
+                        const mKey = `${evKey}__${mIdKey}`;
+                        const matchInfo = globalMatchTeams[mKey];
+                        if (matchInfo) {
+                            const myTeamKey = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam
+                                : (g.team !== undefined ? g.team : 'team_0'));
+                            (matchInfo[myTeamKey] || []).forEach(mid => { if (mid !== id) allies.add(mid); });
+                            Object.keys(matchInfo).forEach(tName => {
+                                if (tName !== myTeamKey) matchInfo[tName].forEach(eid => enemies.add(eid));
+                            });
+                        }
+                    });
+                    cache[id] = {
+                        id,
+                        skillOrdinal: getRating(id).ordinal,
+                        flagPerGame: flagCount / games.length,
+                        winRate: winCount / games.length,
+                        uniqueAllies: allies.size,
+                        uniqueEnemies: enemies.size,
+                        certaintyScore: certaintyScore(id)
+                    };
+                });
+                playerStatsCache[N] = cache;
+            });
+
+            // 2. 相性インサイト用: 全期間の共闘/対戦勝率を一括計算してキャッシュ
+            playerCompatCache = {};
+            Object.keys(playerRawGames).forEach(pid => {
+                const ally = {}, opp = {};
+                (playerRawGames[pid] || []).forEach(g => {
+                    const isWon = !!(g.won || g.result === 'win');
+                    const evKey = g.eventId || g.date || 'ev';
+                    const mIdKey = (g.matchId !== undefined && g.matchId !== null) ? g.matchId
+                        : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
+                    const mKey = `${evKey}__${mIdKey}`;
+                    const matchInfo = globalMatchTeams[mKey];
+                    if (!matchInfo) return;
+                    const myTeamKey = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam
+                        : (g.team !== undefined ? g.team : 'team_0'));
+                    (matchInfo[myTeamKey] || []).forEach(tid => {
+                        const strTid = String(tid);
+                        if (strTid === String(pid)) return;
+                        if (!ally[strTid]) ally[strTid] = { wins: 0, total: 0 };
+                        ally[strTid].total++;
+                        if (isWon) ally[strTid].wins++;
+                    });
+                    Object.keys(matchInfo).forEach(tKey => {
+                        if (String(tKey) !== myTeamKey) {
+                            (matchInfo[tKey] || []).forEach(oid => {
+                                const strOid = String(oid);
+                                if (strOid === String(pid)) return;
+                                if (!opp[strOid]) opp[strOid] = { wins: 0, total: 0 };
+                                opp[strOid].total++;
+                                if (isWon) opp[strOid].wins++;
+                            });
+                        }
+                    });
+                });
+                playerCompatCache[pid] = { ally, opp };
+            });
         }
 
         function applyEdgeFilter() {
@@ -2189,45 +2271,53 @@
                 badgeEl.textContent = N > 0 ? `(直近${N}G / 最低${MIN_GAMES}試合対象)` : `(全期間 / 最低${MIN_GAMES}試合対象)`;
             }
 
-            let games = playerRawGames[pid] || [];
-            if (N > 0 && games.length > N) games = games.slice(-N);
+            let allyStats, oppStats;
 
-            const allyStats = {};
-            const oppStats = {};
+            if (N === 0 && playerCompatCache[pid]) {
+                // 全期間: 事前計算キャッシュを直接参照（O(1)・ゼロ計算）
+                allyStats = playerCompatCache[pid].ally;
+                oppStats = playerCompatCache[pid].opp;
+            } else {
+                // 直近N試合: スライスしてリアルタイム計算（試合数が少ないため高速）
+                allyStats = {};
+                oppStats = {};
+                let games = playerRawGames[pid] || [];
+                if (N > 0 && games.length > N) games = games.slice(-N);
 
-            games.forEach(g => {
-                const isWon = !!(g.won || g.result === 'win');
-                const evKey = g.eventId || g.date || 'ev';
-                const mIdKey = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
-                const mKey = `${evKey}__${mIdKey}`;
-                const matchInfo = globalMatchTeams[mKey];
-                if (!matchInfo) return;
+                games.forEach(g => {
+                    const isWon = !!(g.won || g.result === 'win');
+                    const evKey = g.eventId || g.date || 'ev';
+                    const mIdKey = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
+                    const mKey = `${evKey}__${mIdKey}`;
+                    const matchInfo = globalMatchTeams[mKey];
+                    if (!matchInfo) return;
 
-                const myTeamKey = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam : (g.team !== undefined ? g.team : 'team_0'));
-                const myTeammates = matchInfo[myTeamKey] || [];
+                    const myTeamKey = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam : (g.team !== undefined ? g.team : 'team_0'));
+                    const myTeammates = matchInfo[myTeamKey] || [];
 
-                // 共闘集計 (味方)
-                myTeammates.forEach(tid => {
-                    const strTid = String(tid);
-                    if (strTid === String(pid)) return;
-                    if (!allyStats[strTid]) allyStats[strTid] = { wins: 0, total: 0 };
-                    allyStats[strTid].total++;
-                    if (isWon) allyStats[strTid].wins++;
+                    // 共闘集計 (味方)
+                    myTeammates.forEach(tid => {
+                        const strTid = String(tid);
+                        if (strTid === String(pid)) return;
+                        if (!allyStats[strTid]) allyStats[strTid] = { wins: 0, total: 0 };
+                        allyStats[strTid].total++;
+                        if (isWon) allyStats[strTid].wins++;
+                    });
+
+                    // 対戦集計 (敵)
+                    Object.keys(matchInfo).forEach(tKey => {
+                        if (String(tKey) !== myTeamKey) {
+                            (matchInfo[tKey] || []).forEach(oid => {
+                                const strOid = String(oid);
+                                if (strOid === String(pid)) return;
+                                if (!oppStats[strOid]) oppStats[strOid] = { wins: 0, total: 0 };
+                                oppStats[strOid].total++;
+                                if (isWon) oppStats[strOid].wins++;
+                            });
+                        }
+                    });
                 });
-
-                // 対戦集計 (敵)
-                Object.keys(matchInfo).forEach(tKey => {
-                    if (String(tKey) !== myTeamKey) {
-                        (matchInfo[tKey] || []).forEach(oid => {
-                            const strOid = String(oid);
-                            if (strOid === String(pid)) return;
-                            if (!oppStats[strOid]) oppStats[strOid] = { wins: 0, total: 0 };
-                            oppStats[strOid].total++;
-                            if (isWon) oppStats[strOid].wins++;
-                        });
-                    }
-                });
-            });
+            }
 
             // 1. ベストパートナー TOP (最低20試合、勝率降順、同率は総試合数降順)
             const qualifiedPartners = Object.entries(allyStats)
@@ -2486,38 +2576,11 @@
             const pid = activePlayerIdForModal;
             const N = parseInt(playerRollingSelect.value);
             
-            const allPids = Object.keys(playerRawGames);
-            const validStats = []; const statsMap = {};
-            
-            allPids.forEach(id => {
-                let games = playerRawGames[id] || [];
-                // σ は OpenSkill が返す推定の不確実性。小さいほど評価が固まっている。
-                const certainty = certaintyScore(id);
-                
-                if (N > 0 && games.length > N) games = games.slice(-N);
-                
-                let winCount = 0; let flagCount = 0;
-                let allies = new Set(); let enemies = new Set();
-                
-                games.forEach(g => {
-                    if (g.won || g.result === 'win') winCount++;
-                    if (g.gotFlag) flagCount++;
-                    const evKey = g.eventId || g.date || 'ev';
-                    const mIdKey = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
-                    const mKey = `${evKey}__${mIdKey}`;
-                    const matchInfo = globalMatchTeams[mKey];
-                    if (matchInfo) {
-                        const myTeamMates = matchInfo[g.myTeam] || [];
-                        myTeamMates.forEach(mid => { if (mid !== id) allies.add(mid); });
-                        Object.keys(matchInfo).forEach(tName => { if (tName !== g.myTeam) matchInfo[tName].forEach(eid => enemies.add(eid)); });
-                    }
-                });
-                
-                if (games.length > 0) {
-                    const st = { id: id, skillOrdinal: getRating(id).ordinal, flagPerGame: flagCount / games.length, winRate: winCount / games.length, uniqueAllies: allies.size, uniqueEnemies: enemies.size, certaintyScore: certainty };
-                    validStats.push(st); statsMap[id] = st;
-                }
-            });
+            // キャッシュから取得（O(1)）— データ読込時に全期間分を一括計算済み
+            const cacheForN = playerStatsCache[N] || playerStatsCache[0] || {};
+            const validStats = Object.values(cacheForN);
+            const statsMap = {};
+            validStats.forEach(st => { statsMap[st.id] = st; });
 
             if (!statsMap[pid]) return; 
 
