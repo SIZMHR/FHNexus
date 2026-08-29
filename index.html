@@ -2127,9 +2127,28 @@
                 });
             });
 
+            if (network) {
+                network._fhStabilized = false;
+                network.setOptions({
+                    physics: {
+                        enabled: true,
+                        solver: 'forceAtlas2Based',
+                        forceAtlas2Based: { gravitationalConstant: -28, centralGravity: 0.005, springLength: 90, springConstant: 0.08, damping: 0.4 },
+                        stabilization: { iterations: 120, updateInterval: 20 }
+                    }
+                });
+            }
+
             if (currentNodes) { currentNodes.clear(); currentNodes.add(nodesArr); }
             applyEdgeFilter();
-            if (network) setTimeout(() => syncNetworkSize(true), 0);
+
+            if (network) {
+                network.stabilize(120);
+                setTimeout(() => {
+                    syncNetworkSize(true);
+                    if (network.fit) network.fit({ animation: { duration: 600 } });
+                }, 50);
+            }
 
             if(!network && typeof vis !== 'undefined') {
                 network = new vis.Network(document.getElementById('network'), { nodes: currentNodes, edges: currentEdges }, {
@@ -2146,6 +2165,7 @@
                         hideEdgesOnZoom: true  // ズーム時にエッジを非表示にしてスムーズな操作感を実現
                     },
                     physics: {
+                        enabled: true,
                         solver: 'forceAtlas2Based',
                         forceAtlas2Based: { gravitationalConstant: -28, centralGravity: 0.005, springLength: 90, springConstant: 0.08, damping: 0.4 },
                         stabilization: { iterations: 120, updateInterval: 20 }
