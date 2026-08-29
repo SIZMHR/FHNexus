@@ -545,8 +545,42 @@
                     </div>
                 </div>
 
+                <!-- プレイヤー間 相性インサイト (共闘シナジー ＆ 対戦相性) -->
+                <div style="margin-top: 12px; background: rgba(0, 210, 255, 0.03); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 10px; padding: 12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom: 1px solid rgba(0,210,255,0.2); padding-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+                        <h3 style="color:#00d2ff; font-size:14px; margin:0; display:flex; align-items:center; gap:6px;">
+                            ✨ プレイヤー相性インサイト <span id="compat-period-badge" style="font-size:11px; color:#8b9bb4; font-weight:normal;">(最低20試合対象)</span>
+                        </h3>
+                        <span style="font-size:11px; color:#8b9bb4;">※引き分け含む総試合数ベース / 勝率順</span>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                        <!-- 🤝 ベストパートナー TOP -->
+                        <div style="background: rgba(6, 214, 160, 0.05); border: 1px solid rgba(6, 214, 160, 0.25); border-radius: 8px; padding: 10px;">
+                            <div style="font-size:13px; font-weight:bold; color:#06d6a0; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+                                <span>🤝 ベストパートナー <small style="font-size:11px; font-weight:normal; color:#8b9bb4;">(共闘勝率 TOP)</small></span>
+                                <span style="font-size:10px; background:rgba(6,214,160,0.15); color:#06d6a0; padding:1px 6px; border-radius:4px; font-weight:bold;">同チーム</span>
+                            </div>
+                            <div id="modal-best-partners" style="display:flex; flex-direction:column; gap:6px;">
+                                <!-- JS で動的描画 -->
+                            </div>
+                        </div>
+
+                        <!-- ⚔️ 対戦相性 (キラー / 天敵 / 好敵手) -->
+                        <div style="background: rgba(255, 77, 109, 0.05); border: 1px solid rgba(255, 77, 109, 0.25); border-radius: 8px; padding: 10px;">
+                            <div style="font-size:13px; font-weight:bold; color:#ff4d6d; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+                                <span>⚔️ 対戦相性 <small style="font-size:11px; font-weight:normal; color:#8b9bb4;">(キラー / 天敵 / 好敵手)</small></span>
+                                <span style="font-size:10px; background:rgba(255,77,109,0.15); color:#ff4d6d; padding:1px 6px; border-radius:4px; font-weight:bold;">敵チーム</span>
+                            </div>
+                            <div id="modal-matchup-insights" style="display:flex; flex-direction:column; gap:6px;">
+                                <!-- JS で動的描画 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- たくさん対戦しているのに一緒にプレーしていないプレイヤー（ネクスト・バディ候補） -->
-                <div style="margin-top: 10px; background: rgba(255, 215, 0, 0.04); border: 1px solid rgba(255, 215, 0, 0.25); border-radius: 10px; padding: 12px;">
+                <div style="margin-top: 12px; background: rgba(255, 215, 0, 0.04); border: 1px solid rgba(255, 215, 0, 0.25); border-radius: 10px; padding: 12px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom: 1px solid rgba(255,215,0,0.2); padding-bottom: 6px;">
                         <h3 style="color:#ffd700; font-size:14px; margin:0; display:flex; align-items:center; gap:6px;">
                             🤝 ネクスト・バディ候補 <span style="font-size:11px; color:#8b9bb4; font-weight:normal;">(たくさん対戦しているのに共闘回数が少ないライバル)</span>
@@ -2135,8 +2169,204 @@
             document.getElementById('modal-player-name').textContent = `${pName} - 詳細分析`;
             document.getElementById('player-modal').style.display = 'flex';
             updatePlayerCharts();
+            updatePlayerCompatibility(pid);
             renderUnpartneredRivals(pid);
         };
+
+        // ==========================================
+        // プレイヤー間 相性インサイト（共闘勝率 TOP ＆ 対戦相性）
+        // ==========================================
+        function updatePlayerCompatibility(pid) {
+            const partnersEl = document.getElementById('modal-best-partners');
+            const matchupsEl = document.getElementById('modal-matchup-insights');
+            const badgeEl = document.getElementById('compat-period-badge');
+            if (!partnersEl || !matchupsEl || !pid) return;
+
+            const N = parseInt(playerRollingSelect.value) || 0;
+            const MIN_GAMES = 20;
+
+            if (badgeEl) {
+                badgeEl.textContent = N > 0 ? `(直近${N}G / 最低${MIN_GAMES}試合対象)` : `(全期間 / 最低${MIN_GAMES}試合対象)`;
+            }
+
+            let games = playerRawGames[pid] || [];
+            if (N > 0 && games.length > N) games = games.slice(-N);
+
+            const allyStats = {};
+            const oppStats = {};
+
+            games.forEach(g => {
+                const isWon = !!(g.won || g.result === 'win');
+                const evKey = g.eventId || g.date || 'ev';
+                const mIdKey = (g.matchId !== undefined && g.matchId !== null) ? g.matchId : (g.gameId !== undefined ? g.gameId : (g.date ? g.date : 'm'));
+                const mKey = `${evKey}__${mIdKey}`;
+                const matchInfo = globalMatchTeams[mKey];
+                if (!matchInfo) return;
+
+                const myTeamKey = String((g.myTeam !== undefined && g.myTeam !== null) ? g.myTeam : (g.team !== undefined ? g.team : 'team_0'));
+                const myTeammates = matchInfo[myTeamKey] || [];
+
+                // 共闘集計 (味方)
+                myTeammates.forEach(tid => {
+                    const strTid = String(tid);
+                    if (strTid === String(pid)) return;
+                    if (!allyStats[strTid]) allyStats[strTid] = { wins: 0, total: 0 };
+                    allyStats[strTid].total++;
+                    if (isWon) allyStats[strTid].wins++;
+                });
+
+                // 対戦集計 (敵)
+                Object.keys(matchInfo).forEach(tKey => {
+                    if (String(tKey) !== myTeamKey) {
+                        (matchInfo[tKey] || []).forEach(oid => {
+                            const strOid = String(oid);
+                            if (strOid === String(pid)) return;
+                            if (!oppStats[strOid]) oppStats[strOid] = { wins: 0, total: 0 };
+                            oppStats[strOid].total++;
+                            if (isWon) oppStats[strOid].wins++;
+                        });
+                    }
+                });
+            });
+
+            // 1. ベストパートナー TOP (最低20試合、勝率降順、同率は総試合数降順)
+            const qualifiedPartners = Object.entries(allyStats)
+                .filter(([_, st]) => st.total >= MIN_GAMES)
+                .map(([id, st]) => ({
+                    pid: id,
+                    name: globalPlayerNames[id] || id,
+                    htmlName: globalPlayerHtmlNames[id] || id,
+                    wins: st.wins,
+                    losses: st.total - st.wins,
+                    total: st.total,
+                    winRate: (st.wins / st.total) * 100
+                }))
+                .sort((a, b) => b.winRate - a.winRate || b.total - a.total)
+                .slice(0, 5);
+
+            renderBestPartners(qualifiedPartners, MIN_GAMES);
+
+            // 2. 対戦相性 (最低20試合)
+            const qualifiedOpponents = Object.entries(oppStats)
+                .filter(([_, st]) => st.total >= MIN_GAMES)
+                .map(([id, st]) => ({
+                    pid: id,
+                    name: globalPlayerNames[id] || id,
+                    htmlName: globalPlayerHtmlNames[id] || id,
+                    wins: st.wins,
+                    losses: st.total - st.wins,
+                    total: st.total,
+                    winRate: (st.wins / st.total) * 100
+                }));
+
+            // 🎯 カモ / キラー (対戦勝率 TOP 2)
+            const killers = [...qualifiedOpponents]
+                .sort((a, b) => b.winRate - a.winRate || b.total - a.total)
+                .slice(0, 2);
+
+            // 🛡️ 天敵・壁 (対戦勝率 LOW 2)
+            const nemesis = [...qualifiedOpponents]
+                .sort((a, b) => a.winRate - b.winRate || b.total - a.total)
+                .slice(0, 2);
+
+            // ⚖️ 好敵手 / 宿命のライバル (勝率 40%〜60%の中で対戦数最多)
+            const rivals = [...qualifiedOpponents]
+                .filter(p => p.winRate >= 40 && p.winRate <= 60)
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 1);
+
+            renderMatchupInsights(killers, nemesis, rivals, MIN_GAMES, qualifiedOpponents.length);
+        }
+
+        function renderBestPartners(partners, minGames) {
+            const listEl = document.getElementById('modal-best-partners');
+            if (!listEl) return;
+
+            if (partners.length === 0) {
+                listEl.innerHTML = `<div style="color:#8b9bb4; font-size:11.5px; text-align:center; padding:12px 8px; background:rgba(0,0,0,0.25); border-radius:6px; line-height:1.5;">共闘 ${minGames}試合以上の対象データがありません<br><span style="color:#6c7d93; font-size:10.5px;">(※全期間または出場数が多いプレイヤーで表示されます)</span></div>`;
+                return;
+            }
+
+            const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+            let html = '';
+            partners.forEach((p, idx) => {
+                const medal = medals[idx] || `${idx + 1}.`;
+                html += `
+                <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(6,214,160,0.2); border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
+                        <span style="font-size:14px; flex-shrink:0;">${medal}</span>
+                        <span style="font-weight:bold; font-size:12.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.htmlName}</span>
+                    </div>
+                    <div style="text-align:right; flex-shrink:0;">
+                        <div style="color:#06d6a0; font-weight:bold; font-size:13px; font-variant-numeric:tabular-nums;">${p.winRate.toFixed(1)}%</div>
+                        <div style="font-size:10px; color:#8b9bb4;">${p.wins}勝 ${p.losses}敗 (${p.total}共闘)</div>
+                    </div>
+                </div>`;
+            });
+            listEl.innerHTML = html;
+        }
+
+        function renderMatchupInsights(killers, nemesis, rivals, minGames, totalQualified) {
+            const listEl = document.getElementById('modal-matchup-insights');
+            if (!listEl) return;
+
+            if (totalQualified === 0) {
+                listEl.innerHTML = `<div style="color:#8b9bb4; font-size:11.5px; text-align:center; padding:12px 8px; background:rgba(0,0,0,0.25); border-radius:6px; line-height:1.5;">対戦 ${minGames}試合以上の対象データがありません<br><span style="color:#6c7d93; font-size:10.5px;">(※全期間または対戦数が多いプレイヤーで表示されます)</span></div>`;
+                return;
+            }
+
+            let html = '';
+
+            // 🎯 カモ / キラー（対戦勝率 TOP）
+            if (killers.length > 0) {
+                const k = killers[0];
+                html += `
+                <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(6,214,160,0.2); border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <div style="min-width:0; flex:1;">
+                        <div style="font-size:10px; font-weight:bold; color:#06d6a0; margin-bottom:2px;">🎯 お得意様 (対戦勝率 TOP)</div>
+                        <div style="font-weight:bold; font-size:12.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${k.htmlName}</div>
+                    </div>
+                    <div style="text-align:right; flex-shrink:0;">
+                        <div style="color:#06d6a0; font-weight:bold; font-size:13px; font-variant-numeric:tabular-nums;">${k.winRate.toFixed(1)}%</div>
+                        <div style="font-size:10px; color:#8b9bb4;">${k.wins}勝 ${k.losses}敗 (${k.total}戦)</div>
+                    </div>
+                </div>`;
+            }
+
+            // 🛡️ 天敵・壁（対戦勝率 LOW）
+            if (nemesis.length > 0) {
+                const n = nemesis[0];
+                html += `
+                <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,77,109,0.2); border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <div style="min-width:0; flex:1;">
+                        <div style="font-size:10px; font-weight:bold; color:#ff4d6d; margin-bottom:2px;">🛡️ 天敵・要警戒 (対戦勝率 LOW)</div>
+                        <div style="font-weight:bold; font-size:12.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${n.htmlName}</div>
+                    </div>
+                    <div style="text-align:right; flex-shrink:0;">
+                        <div style="color:#ff4d6d; font-weight:bold; font-size:13px; font-variant-numeric:tabular-nums;">${n.winRate.toFixed(1)}%</div>
+                        <div style="font-size:10px; color:#8b9bb4;">${n.wins}勝 ${n.losses}敗 (${n.total}戦)</div>
+                    </div>
+                </div>`;
+            }
+
+            // ⚖️ 好敵手 / 宿命のライバル
+            if (rivals.length > 0) {
+                const r = rivals[0];
+                html += `
+                <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,210,255,0.2); border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <div style="min-width:0; flex:1;">
+                        <div style="font-size:10px; font-weight:bold; color:#00d2ff; margin-bottom:2px;">⚖️ 宿命のライバル (激闘枠)</div>
+                        <div style="font-weight:bold; font-size:12.5px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.htmlName}</div>
+                    </div>
+                    <div style="text-align:right; flex-shrink:0;">
+                        <div style="color:#00d2ff; font-weight:bold; font-size:13px; font-variant-numeric:tabular-nums;">${r.winRate.toFixed(1)}%</div>
+                        <div style="font-size:10px; color:#8b9bb4;">${r.wins}勝 ${r.losses}敗 (${r.total}戦)</div>
+                    </div>
+                </div>`;
+            }
+
+            listEl.innerHTML = html;
+        }
 
         // ==========================================
         // ネクスト・バディ候補（たくさん対戦しているのに共闘が少ないプレイヤー）
@@ -2246,7 +2476,10 @@
         // ==========================================
         // プレイヤー個別分析グラフ処理
         // ==========================================
-        playerRollingSelect.addEventListener('change', updatePlayerCharts);
+        playerRollingSelect.addEventListener('change', () => {
+            updatePlayerCharts();
+            if (activePlayerIdForModal) updatePlayerCompatibility(activePlayerIdForModal);
+        });
 
         function updatePlayerCharts() {
             if (!activePlayerIdForModal) return;
