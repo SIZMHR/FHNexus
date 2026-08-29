@@ -549,7 +549,7 @@
                 <div style="margin-top: 12px; background: rgba(0, 210, 255, 0.03); border: 1px solid rgba(0, 210, 255, 0.2); border-radius: 10px; padding: 12px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom: 1px solid rgba(0,210,255,0.2); padding-bottom: 6px; flex-wrap: wrap; gap: 6px;">
                         <h3 style="color:#00d2ff; font-size:14px; margin:0; display:flex; align-items:center; gap:6px;">
-                            ✨ プレイヤー相性インサイト <span id="compat-period-badge" style="font-size:11px; color:#8b9bb4; font-weight:normal;">(最低20試合対象)</span>
+                            ✨ プレイヤー相性インサイト <span id="compat-period-badge" style="font-size:11px; color:#8b9bb4; font-weight:normal;">(最低40試合対象)</span>
                         </h3>
                         <span style="font-size:11px; color:#8b9bb4;">※引き分け含む総試合数ベース / 勝率順</span>
                     </div>
@@ -2265,7 +2265,8 @@
             if (!partnersEl || !matchupsEl || !pid) return;
 
             const N = parseInt(playerRollingSelect.value) || 0;
-            const MIN_GAMES = 20;
+            // しきい値: 全期間および50G時は最低40試合。期間指定が40未満(直近25G等)の場合は期間に応じたスケーリング(例: 最低15試合)
+            const MIN_GAMES = (N > 0 && N < 40) ? Math.max(10, Math.floor(N * 0.6)) : 40;
 
             if (badgeEl) {
                 badgeEl.textContent = N > 0 ? `(直近${N}G / 最低${MIN_GAMES}試合対象)` : `(全期間 / 最低${MIN_GAMES}試合対象)`;
